@@ -1,3 +1,5 @@
+> Historical review of the six-employee rebuild snapshot. The integrated seven-mascot release is documented in PROGRESS.md.
+
 # Coffee Run gameplay review — 2026-11-01
 
 Level 4 is **not certified**. The integrated game executes real interactions and complete rounds, but commercial animation, material finish, item readability, and fluidity still need work. A functional build or attractive frame does not close those gaps.

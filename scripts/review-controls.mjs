@@ -50,7 +50,7 @@ async function interact(type) {
   await until(() => type === 'take' ? !!agent().cupId : type === 'brew' ? state.stations.some(station => station.id === targetId && station.cupId === priorCup) : type === 'deliver' ? state.winner === 'astra' : !agent().interaction, 5000);
   await pause(120);
 }
-async function checkpoint(name) { checkpoints.push({ name, elapsed: state.elapsed, agent: agent(), cups: state.cups, stations: state.stations }); console.log(name, state.elapsed.toFixed(2), agent().x.toFixed(2), agent().z.toFixed(2)); await page.screenshot({ path: output + name + '.png', timeout: 60000 }); }
+async function checkpoint(name) { checkpoints.push({ name, elapsed: state.elapsed, agent: agent(), cups: state.cups, stations: state.stations }); console.log(name, state.elapsed.toFixed(2), agent().x.toFixed(2), agent().z.toFixed(2)); if (process.env.REVIEW_CHECKPOINT_IMAGES !== '0' || name === 'manual-delivery') await page.screenshot({ path: output + name + '.png', timeout: 60000 }); }
 try {
   await page.addInitScript(() => { document.addEventListener('scene-ready', () => { window.reviewReady = true; }, true); });
   await page.goto(target, { waitUntil: 'domcontentloaded' }); await page.waitForFunction(() => window.reviewReady, undefined, { timeout: 60000 });

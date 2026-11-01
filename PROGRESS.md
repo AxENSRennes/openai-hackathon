@@ -1,5 +1,16 @@
 # Coffee Run implementation status
 
+## Integrated release on 2026-11-01
+
+The user authorized committing the current workspace, merging to main, and deploying through the existing Coffee Run workflow. The release combines the seven selectable/playable mascot designs with the shared-texture/compressed-model loading fix and the historical gameplay review. Integration was performed in an isolated worktree so concurrent development could continue safely.
+
+- All 53 Node tests pass. The asset compression fixture now uses the retained chair GLB rather than a deleted employee model.
+- The production build succeeds; the remaining authored environment/chair GLBs and their shared textures total approximately 2.25 MB before HTTP overhead.
+- A cold-cache browser test at 2 Mbit/s and 150 ms latency loaded the office in 26.16 seconds, received loading progress, and recovered through the reload action after a simulated failed model download.
+- Original employee models, portraits, and mug artwork are removed from the active asset path. Persistent cups, physics, betting, and direct command ownership are retained for all seven mascots.
+
+The Level 4 quality contract remains unfulfilled. The software-rendered VPS review does not certify GPU performance or commercial animation polish. Cups are currently a finite supply of 12 per round; breaking every cup leaves no replacement until the next round. Real OpenAI decision and voice quality still require live API verification.
+
 ## Release target
 
 The current release combines the rebuilt office arena, authored employee assets and animations, fullscreen HUD, camera and audio controls, phone betting, direct keyboard control, and explicit agent command execution. Release changes are integrated into `main`, which triggers the GitHub Actions deployment workflow for `coffee-run.service` on port 5173. Development runs separately on port 5174. Other VPS applications must remain untouched.
