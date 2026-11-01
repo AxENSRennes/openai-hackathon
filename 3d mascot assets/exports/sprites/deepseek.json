@@ -1,0 +1,46 @@
+{
+  "id": "deepseek",
+  "frameWidth": 256,
+  "frameHeight": 256,
+  "columns": 8,
+  "rows": [
+    "idle",
+    "run",
+    "carry",
+    "punch",
+    "stunned",
+    "wobble",
+    "victory"
+  ],
+  "durationSecondsByPose": {
+    "idle": 2.6179938779914944,
+    "run": 0.6981317007977318,
+    "carry": 2.6179938779914944,
+    "punch": 1.2566370614359172,
+    "stunned": 3.141592653589793,
+    "wobble": 2.0943951023931953,
+    "victory": 1.2566370614359172
+  },
+  "facingRadians": -0.25,
+  "pivot": {
+    "x": 0.5,
+    "y": 0.875
+  },
+  "directionStrip": {
+    "columns": 8,
+    "frameWidth": 256,
+    "frameHeight": 256,
+    "anglesRadians": [
+      0,
+      0.7853981633974483,
+      1.5707963267948966,
+      2.356194490192345,
+      3.141592653589793,
+      3.9269908169872414,
+      4.71238898038469,
+      5.497787143782138
+    ],
+    "pose": "idle"
+  },
+  "notes": "Action atlas has one fixed three-quarter view. Direction strip has static idle views only. Visual previews do not decide gameplay outcomes."
+}
