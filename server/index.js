@@ -16,6 +16,7 @@ if (existsSync(path.join(root, '.env'))) {
 const port = Number(process.env.PORT) || 5173;
 const production = process.env.NODE_ENV === 'production';
 const app = express();
+app.use(express.json({ limit: '16kb' }));
 const http = createServer(app);
 const io = new Server(http, { maxHttpBufferSize: 16_384, pingTimeout: 20_000 });
 const book = new BettingBook(RUNNERS);
@@ -51,6 +52,7 @@ function publicState() {
     phase, round, timeLeft: Math.max(0, durations[phase] - elapsed),
     racers: RUNNERS, betting: book.summary(connectedPlayers()), lastResults,
     joinUrl: urls().joinUrl, agentMode: planner.mode, agentStatus: planner.status,
+    controllers: planner.summaries(), modelAvailable: planner.enabled,
   };
 }
 
@@ -65,7 +67,7 @@ function beginRace() {
   if (phase !== 'betting') return false;
   phase = 'racing';
   phaseStarted = Date.now();
-  planner.reset();
+  planner.reset(simulation);
   io.emit('state', publicState());
   return true;
 }
@@ -78,7 +80,7 @@ function endRace() {
   }
   phase = 'results';
   phaseStarted = Date.now();
-  planner.reset();
+  planner.reset(simulation);
   const winnerId = typeof latestSnapshot.winner === 'object' ? latestSnapshot.winner?.id : latestSnapshot.winner;
   lastResults = book.settle(winnerId);
   emitPlayers();
@@ -97,13 +99,62 @@ function nextRound({ refund = false } = {}) {
   simulation = new CoffeeSimulation({ round });
   accumulator = 0;
   latestSnapshot = simulation.snapshot();
-  planner.reset();
+  planner.reset(simulation, { clear: true });
   emitPlayers();
   io.emit('state', publicState());
 }
 
 app.get('/api/info', (_request, response) => response.json({ ...urls(), agentMode: planner.mode }));
 app.get('/api/health', (_request, response) => response.json({ ok: true, phase, round }));
+
+function publishState() { latestSnapshot = simulation.snapshot(); io.emit('state', publicState()); }
+function agentToken(request) { return request.get('authorization')?.replace(/^Bearer /, ''); }
+function requireController(request, response, next) {
+  if (!planner.authorized(request.params.id, agentToken(request))) return response.status(403).json({ ok: false, error: 'A valid controller bearer token is required.' });
+  next();
+}
+app.get('/api/agents/:id/observe', (request, response) => {
+  const observation = planner.observe(simulation, request.params.id);
+  if (!observation) return response.status(404).json({ ok: false, error: 'Unknown runner.' });
+  response.json({ ...observation, phase, controller: planner.summaries().find(c => c.id === request.params.id) });
+});
+app.post('/api/agents/:id/claim', (request, response) => {
+  if (planner.controllers.get(request.params.id)?.mode && planner.controllers.get(request.params.id).mode !== 'idle') return response.status(409).json({ ok: false, error: 'Runner already has a controller.' });
+  const result = planner.configure(simulation, request.params.id, request.body || {});
+  publishState(); response.status(result.ok ? 200 : 400).json(result);
+});
+app.post('/api/agents/:id/command', requireController, (request, response) => {
+  if (phase !== 'racing') return response.status(409).json({ ok: false, error: 'Commands are accepted only during a race.' });
+  if (planner.controllers.get(request.params.id)?.mode !== 'external') return response.status(409).json({ ok: false, error: 'Only external controllers accept submitted commands.' });
+  const result = planner.issue(simulation, request.params.id, request.body);
+  publishState(); response.status(result.ok ? 200 : 409).json(result);
+});
+app.post('/api/agents/:id/instruction', requireController, (request, response) => {
+  const result = planner.instruct(simulation, request.params.id, request.body?.instruction);
+  publishState(); response.status(result.ok ? 200 : 400).json(result);
+});
+app.post('/api/agents/:id/release', requireController, (request, response) => {
+  const result = planner.configure(simulation, request.params.id, { mode: 'idle' });
+  publishState(); response.status(result.ok ? 200 : 400).json({ ok: result.ok, error: result.error });
+});
+app.post('/api/voice/transcribe', express.raw({ type: ['audio/*', 'video/webm'], limit: '2mb' }), async (request, response) => {
+  if (!planner.enabled) return response.status(503).json({ ok: false, error: 'OPENAI_API_KEY is not configured on the server.' });
+  if (!Buffer.isBuffer(request.body) || !request.body.length) return response.status(400).json({ ok: false, error: 'Record an audio instruction first.' });
+  try {
+    const form = new FormData();
+    form.append('model', process.env.OPENAI_TRANSCRIPTION_MODEL || 'gpt-4o-mini-transcribe');
+    const contentType = request.get('content-type');
+    const extension = contentType.includes('mp4') ? 'mp4' : contentType.includes('ogg') ? 'ogg' : contentType.includes('wav') ? 'wav' : 'webm';
+    form.append('file', new Blob([request.body], { type: contentType }), `instruction.${extension}`);
+    const result = await fetch('https://api.openai.com/v1/audio/transcriptions', { method: 'POST', headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` }, body: form, signal: AbortSignal.timeout(20000) });
+    if (!result.ok) throw new Error(`Transcription HTTP ${result.status}`);
+    const data = await result.json();
+    if (typeof data.text !== 'string' || !data.text.trim()) throw new Error('No speech was recognized.');
+    response.json({ ok: true, text: data.text });
+  } catch (error) { response.status(502).json({ ok: false, error: error.message }); }
+});
+app.use('/api', (error, _request, response, _next) => response.status(error.status || 500).json({ ok: false, error: error.status === 413 ? 'Request is too large.' : 'Invalid API request.' }));
+app.use('/api', (_request, response) => response.status(404).json({ ok: false, error: 'Unknown API endpoint.' }));
 
 io.on('connection', (socket) => {
   socket.emit('state', publicState());
@@ -138,6 +189,7 @@ io.on('connection', (socket) => {
     if (owner && owner !== socket.id) return reply({ ok: false, error: 'This runner is already controlled by another player.' });
     if (prior === payload.id && owner === socket.id) return reply({ ok: true, agentId: payload.id });
     if (prior && prior !== payload.id) { simulation.setControl(prior, false); agentOwners.delete(prior); }
+    planner.configure(simulation, payload.id, { mode: 'idle' });
     socket.data.controlledAgentId = payload.id; socket.data.lastInputAt = 0; agentOwners.set(payload.id, socket.id);
     simulation.setControl(payload.id, true); latestSnapshot = simulation.snapshot();
     io.emit('state', publicState()); reply({ ok: true, agentId: payload.id });
@@ -146,6 +198,13 @@ io.on('connection', (socket) => {
     const id = socket.data.controlledAgentId;
     if (phase !== 'racing' || !id || agentOwners.get(id) !== socket.id) return;
     if (simulation.setInput(id, input)) socket.data.lastInputAt = performance.now();
+  });
+  socket.on('host:agent', (payload = {}, callback) => {
+    const reply = result => { publishState(); if (typeof callback === 'function') { const { token, ...publicResult } = result; callback(publicResult); } };
+    if (!payload || typeof payload !== 'object') return reply({ ok: false, error: 'Invalid agent request.' });
+    if (payload.action === 'instruction') return reply(planner.instruct(simulation, payload.id, payload.instruction));
+    if (payload.action === 'configure') return reply(planner.configure(simulation, payload.id, payload));
+    reply({ ok: false, error: 'Unknown agent request.' });
   });
   socket.on('disconnect', () => {
     if (shuttingDown) return;

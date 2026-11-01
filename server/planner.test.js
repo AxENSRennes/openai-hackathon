@@ -1,105 +1,132 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { AgentPlanner } from './planner.js';
+import { AgentPlanner, decisionOptions } from './planner.js';
+import { CoffeeSimulation, RUNNERS, initializePhysics } from '../shared/simulation.js';
 
-const runners = [{ id: 'pip', name: 'Pip', trait: 'Careful' }];
-const snapshot = { elapsed: 1, finished: false, agents: [], spills: [], events: [] };
-const flush = () => new Promise((resolve) => setImmediate(resolve));
+await initializePhysics();
+const flush = () => new Promise(resolve => setImmediate(resolve));
+const movement = { type: 'move', x: 1, z: 0, durationMs: 250, pace: 'careful' };
+function fixture(fetchImpl = async () => { throw new Error('Unexpected network request'); }, apiKey = 'test-key') {
+  const simulation = new CoffeeSimulation();
+  const planner = new AgentPlanner(RUNNERS, { apiKey, fetchImpl });
+  return { simulation, planner, close() { planner.dispose(); simulation.dispose(); } };
+}
 
-test('no API key keeps local controllers active without network calls', () => {
-  const previous = process.env.OPENAI_API_KEY;
-  delete process.env.OPENAI_API_KEY;
+test('without a key all runners wait; model modes are rejected and external control still works', () => {
+  const f = fixture(undefined, '');
   try {
-    const planner = new AgentPlanner(runners);
-    planner.update({ setStrategy() { assert.fail('No model strategy should be applied'); } }, snapshot);
-    assert.equal(planner.mode, 'local');
-    assert.equal(planner.busy, false);
-    planner.dispose();
-  } finally {
-    if (previous === undefined) delete process.env.OPENAI_API_KEY;
-    else process.env.OPENAI_API_KEY = previous;
+    assert.equal(f.planner.mode, 'idle');
+    assert.equal(f.planner.configure(f.simulation, 'pip', { mode: 'decisions' }).ok, false);
+    assert.equal(f.planner.configure(f.simulation, 'pip', { mode: 'responses' }).ok, false);
+    assert.equal(f.planner.configure(f.simulation, 'pip', { mode: 'external' }).ok, true);
+    f.planner.update(f.simulation);
+    assert.equal(f.simulation.agents[0].command, null);
+  } finally { f.close(); }
+});
+
+for (const mode of ['responses', 'decisions']) {
+  test(`${mode} chooses an actual physical command using the full observed world`, async () => {
+    let request, endpoint;
+    const f = fixture(async (url, options) => {
+      endpoint = url; request = JSON.parse(options.body);
+      return { ok: true, json: async () => mode === 'responses' ? { output: [{ content: [{ type: 'output_text', text: JSON.stringify(movement) }] }] } : { answers: [{ type: 'choice', name: 'next_command', choice: 'move:east:careful:250' }] } };
+    });
+    try {
+      f.planner.configure(f.simulation, 'pip', { mode, instruction: 'Move east carefully.' });
+      f.planner.update(f.simulation); await flush();
+      assert.equal(endpoint, `https://api.openai.com/v1/${mode}`);
+      assert.deepEqual(f.simulation.agents[0].command.type, 'move');
+      const before = f.simulation.agents[0].x;
+      for (let i = 0; i < 40; i++) f.simulation.step(1 / 60);
+      assert.ok(f.simulation.agents[0].x > before + .2);
+      assert.equal(f.simulation.agents[0].lastCommand.status, 'completed');
+      const observation = mode === 'responses' ? JSON.parse(request.input) : request.input[1].content[0].data;
+      assert.equal(observation.self.id, 'pip');
+      assert.equal(observation.instruction, 'Move east carefully.');
+      assert.ok(observation.map.obstacles.length && observation.cups.length);
+      assert.equal(observation.rules.noAutomaticNavigation, true);
+      assert.equal(f.simulation.agents[1].command, null, 'A runner decision never controls another runner');
+      if (mode === 'decisions') assert.ok(request.questions[0].choices.every(c => typeof c.value === 'string'));
+    } finally { f.close(); }
+  });
+}
+
+test('Decisions refuses invalid choices; model errors leave characters idle without fallback', async () => {
+  for (const answer of [{ ok: false, status: 429 }, { ok: true, json: async () => ({ answers: [{ type: 'refusal', name: 'next_command' }] }) }, { ok: true, json: async () => ({ answers: [{ type: 'choice', name: 'next_command', choice: 'teleport' }] }) }]) {
+    const f = fixture(async () => answer);
+    try {
+      f.planner.configure(f.simulation, 'pip', { mode: 'decisions' });
+      f.planner.update(f.simulation); await flush();
+      for (let i = 0; i < 120; i++) f.simulation.step(1 / 60);
+      assert.equal(f.simulation.agents[0].command, null);
+      assert.match(f.planner.summaries()[0].status, /Model unavailable; character waiting/);
+      assert.equal(f.planner.mode, 'decisions');
+    } finally { f.close(); }
   }
 });
 
-test('validated model decisions affect only existing runners and constrain aggression', async () => {
-  const previousKey = process.env.OPENAI_API_KEY;
-  const previousFetch = globalThis.fetch;
-  process.env.OPENAI_API_KEY = 'test-key';
-  globalThis.fetch = async () => ({ ok: true, json: async () => ({ output: [{ content: [{ type: 'output_text', text: JSON.stringify({ decisions: [
-    { id: 'pip', pace: 'careful', route: 'detour', aggression: 7 },
-    { id: 'unknown', pace: 'fast', route: 'direct', aggression: 1 },
-  ] }) }] }] }) });
+for (const change of ['instruction', 'round', 'human', 'replace']) {
+  test(`a delayed model response cannot survive a ${change} change`, async () => {
+    let resolve;
+    const f = fixture(() => new Promise(done => { resolve = done; }));
+    try {
+      f.planner.configure(f.simulation, 'pip', { mode: 'responses' });
+      f.planner.update(f.simulation);
+      if (change === 'instruction') f.planner.instruct(f.simulation, 'pip', 'Wait here.');
+      if (change === 'round') f.planner.reset(f.simulation);
+      if (change === 'human') f.simulation.setControl('pip', true);
+      if (change === 'replace') f.planner.configure(f.simulation, 'pip', { mode: 'external' });
+      resolve({ ok: true, json: async () => ({ output_text: JSON.stringify(movement) }) });
+      await flush();
+      assert.equal(f.simulation.agents[0].command, null);
+    } finally { f.close(); }
+  });
+}
+
+test('external commands require current round, instruction version, ordered sequence, and idempotent retries', () => {
+  const f = fixture();
   try {
-    const calls = [];
-    const planner = new AgentPlanner(runners);
-    planner.update({ setStrategy: (...args) => calls.push(args) }, snapshot);
-    await flush();
-    assert.deepEqual(calls, [['pip', { pace: 'careful', route: 'detour', aggression: 1 }]]);
-    assert.equal(planner.mode, 'openai');
-    planner.dispose();
-  } finally {
-    globalThis.fetch = previousFetch;
-    if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
-    else process.env.OPENAI_API_KEY = previousKey;
-  }
+    const session = f.planner.configure(f.simulation, 'pip', { mode: 'external' });
+    assert.ok(f.planner.authorized('pip', session.token));
+    assert.equal(f.planner.authorized('bolt', session.token), false);
+    const envelope = { round: 1, revision: session.revision, sequence: 1, command: movement };
+    const accepted = f.planner.issue(f.simulation, 'pip', envelope);
+    assert.equal(accepted.ok, true);
+    assert.deepEqual(f.planner.issue(f.simulation, 'pip', envelope), accepted);
+    assert.equal(f.planner.issue(f.simulation, 'pip', { ...envelope, command: { type: 'stop' } }).ok, false);
+    assert.equal(f.planner.issue(f.simulation, 'pip', { ...envelope, sequence: 9 }).ok, false);
+    const updated = f.planner.instruct(f.simulation, 'pip', 'Wait.');
+    assert.equal(f.simulation.agents[0].command, null);
+    assert.equal(f.simulation.agents[0].lastCommand.status, 'cancelled');
+    assert.equal(f.planner.issue(f.simulation, 'pip', { ...envelope, sequence: 2 }).ok, false);
+    assert.equal(f.planner.issue(f.simulation, 'pip', { ...envelope, revision: updated.revision, command: { type: 'stop' } }).ok, true);
+    assert.equal(f.planner.summaries().some(c => 'token' in c), false);
+  } finally { f.close(); }
 });
 
-test('a delayed model response from an ended round cannot control a new race', async () => {
-  const previousKey = process.env.OPENAI_API_KEY;
-  const previousFetch = globalThis.fetch;
-  process.env.OPENAI_API_KEY = 'test-key';
-  let resolveResponse;
-  globalThis.fetch = () => new Promise((resolve) => { resolveResponse = resolve; });
+test('Decisions action menu contains explicit reachable targets and standing up, without goal macros', () => {
+  const f = fixture();
   try {
-    const calls = [];
-    const planner = new AgentPlanner(runners);
-    planner.update({ setStrategy: (...args) => calls.push(args) }, snapshot);
-    planner.reset();
-    resolveResponse({ ok: true, json: async () => ({ output_text: JSON.stringify({ decisions: [{ id: 'pip', pace: 'fast', route: 'direct', aggression: 1 }] }) }) });
-    await flush();
-    assert.equal(calls.length, 0);
-    assert.equal(planner.mode, 'local');
-    planner.dispose();
-  } finally {
-    globalThis.fetch = previousFetch;
-    if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
-    else process.env.OPENAI_API_KEY = previousKey;
-  }
+    let observation = f.planner.observe(f.simulation, 'pip');
+    let choices = decisionOptions(observation);
+    assert.ok(choices.some(c => c.command.type === 'move'));
+    assert.equal(choices.some(c => ['move_to', 'win', 'find_path'].includes(c.command.type)), false);
+    f.simulation.fall(f.simulation.agents[0], 0, 0);
+    observation = f.planner.observe(f.simulation, 'pip');
+    choices = decisionOptions(observation);
+    assert.deepEqual(choices.map(c => c.command.type), ['wait', 'stand_up']);
+  } finally { f.close(); }
 });
 
-test('model context describes the shared customer and authoritative persistent objects', async () => {
-  const previousKey = process.env.OPENAI_API_KEY;
-  const previousFetch = globalThis.fetch;
-  process.env.OPENAI_API_KEY = 'test-key';
-  let request;
-  globalThis.fetch = async (_url, options) => {
-    request = JSON.parse(options.body);
-    return { ok: true, json: async () => ({ output_text: '{"decisions":[]}' }) };
-  };
+test('a timed-out model request releases its busy flag and leaves the runner waiting', async () => {
+  const f = fixture((_url, { signal }) => new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })));
   try {
-    const planner = new AgentPlanner(runners);
-    const state = { ...snapshot, cups: [{ id: 'cup-1', holderId: null, coffee: 100 }], stations: [{ id: 'brew-a', ready: true }], gate: { closed: true } };
-    await planner.plan(state);
-    assert.match(request.instructions, /single shared waiting customer/);
-    assert.match(request.instructions, /held mugs must first be dropped/);
-    const context = JSON.parse(request.input);
-    assert.deepEqual(context.cups, state.cups);
-    assert.deepEqual(context.stations, state.stations);
-    assert.deepEqual(context.gate, state.gate);
-    planner.dispose();
-  } finally {
-    globalThis.fetch = previousFetch;
-    if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
-    else process.env.OPENAI_API_KEY = previousKey;
-  }
-});
-
-test('model tactics cannot change a runner under direct player control', async () => {
-  const planner = new AgentPlanner(runners), calls = [];
-  planner.enabled = true;
-  planner.plan = async () => [{ id: 'pip', pace: 'careful', route: 'detour', aggression: 1 }];
-  planner.update({ setStrategy: (...args) => calls.push(args) }, { ...snapshot, agents: [{ id: 'pip', controlled: true }] });
-  await flush();
-  assert.deepEqual(calls, []);
-  planner.dispose();
+    f.planner.timeoutMs = 20;
+    f.planner.configure(f.simulation, 'pip', { mode: 'responses' });
+    f.planner.update(f.simulation);
+    await new Promise(resolve => setTimeout(resolve, 50));
+    assert.equal(f.planner.summaries()[0].busy, false);
+    assert.match(f.planner.summaries()[0].status, /Model unavailable/);
+    assert.equal(f.simulation.agents[0].command, null);
+  } finally { f.close(); }
 });

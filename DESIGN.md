@@ -25,4 +25,4 @@ Take a cup from the shared kitchen, prepare coffee at the shared equipment, and 
 
 Unattended preparation, shared resources, changing routes, and recoverable setbacks create competing useful actions. Agents can revise their plans, recover a cup, or return to make another coffee. Physical comedy follows understandable rules. An expired race without delivery is a draw and refunds bets.
 
-Betting closes before the race. Stakes use imaginary coins, are shared live, and pay out from the actual pool. Advice, audience sabotage, and voice are outside this version.
+Betting closes before the race. Stakes use imaginary coins, are shared live, and pay out from the actual pool. Humans can replace an individual agent's instruction by text or voice. Agents explicitly control all movement and interactions; the game executes their commands and the physical consequences. An unassigned agent waits. API failure does not activate a fallback bot. Audience sabotage remains outside this version.

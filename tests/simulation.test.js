@@ -37,11 +37,14 @@ function ownership(snapshot) {
   }
 }
 
-test('seeded Rapier worlds reproduce complete rounds and ownership changes', () => {
+test('seeded Rapier worlds reproduce identical external commands without autonomous decisions', () => {
   const first = new CoffeeSimulation({ round: 7 }), second = new CoffeeSimulation({ round: 7 });
   try {
-    for (let frame = 0; frame < 3000 && !first.finished; frame++) { first.step(tick); second.step(tick); }
-    assert.ok(first.finished);
+    for (let frame = 0; frame < 600; frame++) {
+      if (frame % 60 === 0) for (const sim of [first, second]) sim.executeCommand('pip', { type: 'move', x: frame % 120 ? -1 : 1, z: 0, durationMs: 500 });
+      first.step(tick); second.step(tick);
+    }
+    assert.equal(first.finished, false);
     assert.deepEqual(first.snapshot(), second.snapshot());
   } finally { first.dispose(); second.dispose(); }
 });
@@ -103,7 +106,7 @@ test('an opponent must shove and physically drop the held mug before recovering 
     position(owner, -.7, 1); position(thief, -1.5, 1);
     thief.strategy.aggression = 1; thief.cooldown = 0; sim.rand = () => .9;
     assert.equal(sim.takeCup(thief, cup), false);
-    sim.rand = () => 0; sim.contest(); sim.rand = () => .9;
+    assert.equal(sim.shove(thief, owner), true); sim.rand = () => .9;
     assert.equal(owner.fallen, true);
     assert.equal(cup.holderId, null);
     assert.equal(thief.cupId, null, 'A shove never transfers held ownership directly');
@@ -133,8 +136,13 @@ test('a hard physical impact breaks a mug and its agent can prepare a replacemen
     assert.equal(cup.coffee, 0);
     assert.equal(cup.body.numColliders(), 0, 'Rendered shards must not retain an invisible intact-mug collider');
     assert.ok(sim.events.some(e => e.type === 'break'));
-    a.rethink = 0;
-    for (let i = 0; i < 1200 && !a.cupId; i++) sim.step(tick);
+    advance(sim, 2);
+    assert.equal(a.cupId, null, 'Breakage never triggers an automatic replacement');
+    position(a, LEVEL.cupRack.x, LEVEL.cupRack.z);
+    a.heading = 0;
+    const replacement = sim.cups.find(c => c.rack && !c.broken);
+    assert.equal(sim.executeCommand(a.id, { type: 'take', targetId: replacement.id }).ok, true);
+    advance(sim, .5);
     assert.ok(a.cupId && a.cupId !== cup.id, 'The agent obtains a replacement after breakage');
     ownership(sim.snapshot());
   } finally { sim.dispose(); }
@@ -147,6 +155,9 @@ test('failed cups can be refilled and a fallen runner recovers instead of being 
     position(a, LEVEL.cupRack.x, LEVEL.cupRack.z); sim.takeCup(a, cup); cup.coffee = 20;
     position(a, station.x, station.z); assert.ok(sim.placeCup(a, station));
     position(a, -2, 1); sim.fall(a, 0, 1, 'lost balance');
+    advance(sim, 2);
+    assert.equal(a.fallen, true, 'Standing up requires an explicit command');
+    assert.equal(sim.executeCommand(a.id, { type: 'stand_up' }).ok, true);
     advance(sim, 2);
     assert.equal(a.fallen, false);
     assert.equal(a.falls, 1);
@@ -270,7 +281,7 @@ test('shared island surfaces retain a placed mug and permit contextual rival pic
   } finally { sim.dispose(); }
 });
 
-test('manual movement uses physics collisions, normalized input, stale stopping, and resumes autonomous decisions', () => {
+test('manual movement uses physics collisions, normalized input, stale stopping, and waits after release', () => {
   const sim = new CoffeeSimulation();
   try {
     isolate(sim); const a = sim.agents[0]; position(a, -1.3, -3.8);
@@ -285,7 +296,7 @@ test('manual movement uses physics collisions, normalized input, stale stopping,
     advance(sim, .8); const stopped = { x: a.x, z: a.z }; advance(sim, .5);
     assert.ok(Math.hypot(a.x - stopped.x, a.z - stopped.z) < .02, 'Missing input packets stop movement');
     sim.setControl(a.id, false); sim.step(tick);
-    assert.equal(a.controlled, false); assert.ok(a.task, 'The bot makes a new useful decision after release');
+    assert.equal(a.controlled, false); assert.equal(a.task, null, 'Release never starts an autonomous bot');
   } finally { sim.dispose(); }
 });
 
@@ -386,12 +397,14 @@ test('only a reachable coffee above the threshold can serve the single shared cu
   } finally { sim.dispose(); }
 });
 
-test('varied complete rounds preserve all cup ownership, bounds, furniture, and delivery invariants', () => {
-  const winners = new Set(), incidents = { fall: 0, steal: 0, break: 0 };
-  for (let round = 1; round <= 20; round++) {
+test('varied external movement sequences preserve ownership, bounds, and furniture collisions', () => {
+  for (let round = 1; round <= 8; round++) {
     const sim = new CoffeeSimulation({ round });
     try {
-      for (let frame = 0; frame < 6000 && !sim.finished; frame++) {
+      for (let frame = 0; frame < 1800; frame++) {
+        if (frame % 60 === 0) for (const [index, a] of sim.agents.entries()) {
+          sim.executeCommand(a.id, { type: 'move', x: Math.sin(frame + index + round), z: Math.cos(frame + index * 3), durationMs: 800 });
+        }
         sim.step(tick);
         if (frame % 30 !== 0) continue;
         const state = sim.snapshot(); ownership(state);
@@ -401,18 +414,10 @@ test('varied complete rounds preserve all cup ownership, bounds, furniture, and 
           assert.ok(!LEVEL.obstacles.some(o => Math.hypot(Math.max(0, Math.abs(a.x - o.x) - o.w / 2), Math.max(0, Math.abs(a.z - o.z) - o.d / 2)) < .28), `${a.id} intersected furniture in round ${round}`);
         }
       }
-      assert.ok(sim.finished, `Round ${round} did not complete within 100 seconds`);
-      const winner = sim.agents.find(a => a.id === sim.winner);
-      assert.ok(winner?.delivered && winner.coffee >= 55);
-      assert.ok(Math.hypot(winner.x - LEVEL.customer.delivery.x, winner.z - LEVEL.customer.delivery.z) < .85);
-      winners.add(sim.winner);
-      incidents.fall += sim.agents.reduce((n, a) => n + a.falls, 0);
-      incidents.steal += sim.agents.reduce((n, a) => n + a.steals, 0);
-      incidents.break += sim.cups.filter(c => c.broken).length;
+      assert.equal(sim.winner, null, 'Movement commands alone never pick up or deliver coffee');
+      sim.finish(); assert.equal(sim.timedOut, true);
     } finally { sim.dispose(); }
   }
-  assert.ok(winners.size > 1, 'Seeds must change the competitive outcome');
-  assert.ok(incidents.fall > 0 && incidents.steal > 0 && incidents.break > 0, 'Real rounds exercise recoverable incidents');
 });
 
 test('fixed substeps agree across frame rates; invalid inputs and disposal are safe', () => {

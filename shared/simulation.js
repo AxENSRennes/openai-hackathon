@@ -1,5 +1,6 @@
 import { LEVEL, RUNNERS } from './level.js';
 import { createPhysicsWorld, RAPIER } from './physics.js';
+import { validateCommand } from './commands.js';
 export { RUNNERS, LEVEL } from './level.js';
 export { initializePhysics } from './physics.js';
 
@@ -45,10 +46,10 @@ export class CoffeeSimulation {
       const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(p.x, .78, p.z).lockRotations().enabledTranslations(true, false, true).setLinearDamping(4).setCcdEnabled(true));
       this.world.createCollider(RAPIER.ColliderDesc.capsule(.44, RADIUS).setMass(4).setFriction(.05).setRestitution(0).setCollisionGroups(((1 << (i + 1)) << 16) | 0xffff), body);
       return { ...r, ...p, y: 0, body, vx: 0, vz: 0, heading: Math.PI, coffee: 0, carrying: false, cupId: null,
-        state: 'Finding a cup', action: 'idle', moving: false, fallen: false, progress: 0, delivered: false,
-        decision: 'Prepare a fresh coffee', strategy: { pace: i === 2 ? 'careful' : 'fast', route: i === 4 ? 'detour' : 'direct', aggression: r.aggression },
+        state: 'Waiting for an agent command', action: 'idle', moving: false, fallen: false, progress: 0, delivered: false,
+        decision: 'Waiting for an agent command', strategy: { pace: 'fast', route: 'direct', aggression: r.aggression },
         cooldown: 1 + this.rand() * 2, pushTimer: 0, recovery: 0, safeUntil: 0, rethink: .1 + this.rand() * .65,
-        path: [], target: null, task: null, interaction: null, routeTimer: 0, stuckTime: 0, lastPosition: { ...p },
+        path: [], target: null, task: null, interaction: null, command: null, lastCommand: null, commandSequence: 0, standingUp: false, routeTimer: 0, stuckTime: 0, lastPosition: { ...p },
         controlled: false, input: { x: 0, z: 0, interact: false, drop: false, push: false }, pendingActions: {}, inputAge: Infinity, previousVelocity: { x: 0, z: 0 }, slipExposure: 0, parkedCupId: null, variation: .91 + this.rand() * .18, stationsUsed: 0, steals: 0, falls: 0,
       };
     });
@@ -57,7 +58,7 @@ export class CoffeeSimulation {
       this.world.createCollider(RAPIER.ColliderDesc.cuboid(.37, .5, .37).setMass(1.8).setFriction(.35), body);
       return { ...p, body };
     });
-    this.log('Six rivals. One waiting customer. First coffee above 55% wins.', 'info');
+    this.log('Waiting for agent commands. First coffee above 55% wins.', 'info');
   }
 
   createBox(o, bottom = 0) {
@@ -93,9 +94,10 @@ export class CoffeeSimulation {
     const a = this.agents.find(agent => agent.id === id);
     if (!a) return false;
     if (a.controlled === !!enabled) return true;
+    this.cancelCommand(id, 'Control changed');
     a.controlled = !!enabled; a.input = { x: 0, z: 0, interact: false, drop: false, push: false };
     a.pendingActions = {}; a.inputAge = Infinity; a.interaction = null; a.path = []; a.target = null; a.task = null; a.rethink = 0;
-    a.decision = enabled ? 'Direct player control' : 'Resuming autonomous decisions';
+    a.decision = enabled ? 'Direct player control' : 'Waiting for an agent command';
     return true;
   }
   stopInput(id) {
@@ -110,9 +112,55 @@ export class CoffeeSimulation {
     let x = Number.isFinite(input.x) ? clamp(input.x, -1, 1) : 0;
     let z = Number.isFinite(input.z) ? clamp(input.z, -1, 1) : 0;
     const length = Math.hypot(x, z); if (length > 1) { x /= length; z /= length; }
+    a.strategy.pace = input.steady ? 'careful' : 'fast';
+    if (a.fallen && input.interact && !a.standingUp) { a.standingUp = true; a.recovery = 1.75; }
     for (const key of ['interact', 'drop', 'push']) if (input[key] && !a.input[key]) a.pendingActions[key] = true;
     a.input = { x, z, interact: !!input.interact, drop: !!input.drop, push: !!input.push }; a.inputAge = 0;
     return true;
+  }
+  finishCommand(a, status = 'completed', error = null) {
+    if (!a.command) return;
+    a.lastCommand = { ...a.command, status, error, endedAt: this.elapsed, end: { x: a.x, z: a.z } };
+    a.command = null;
+  }
+  cancelCommand(id, reason = 'Command cancelled') {
+    const a = this.agents.find(agent => agent.id === id);
+    if (!a) return;
+    this.finishCommand(a, 'cancelled', reason);
+    a.interaction = null;
+    a.standingUp = false;
+  }
+  executeCommand(id, command) {
+    const a = this.agents.find(agent => agent.id === id);
+    const error = validateCommand(command);
+    if (!a || error || this.finished || this.disposed || a.controlled) return { ok: false, error: error || (!a ? 'Unknown runner.' : a.controlled ? 'Runner is controlled by a human.' : 'The round is over.') };
+    if (command.type === 'stop') {
+      this.cancelCommand(id);
+    } else if (a.command || a.interaction || a.pushTimer > 0) return { ok: false, error: 'Runner is busy.' };
+    if (a.fallen && !['stand_up', 'wait', 'stop'].includes(command.type)) return { ok: false, error: 'Runner is fallen. Use stand_up.' };
+    if (command.type === 'stand_up' && !a.fallen) return { ok: false, error: 'Runner is already standing.' };
+    if (['take', 'brew', 'place', 'push', 'drop', 'deliver'].includes(command.type)) {
+      const available = this.availableActions(a).some(action => action.type === command.type && (!command.targetId || action.targetId === command.targetId));
+      if (!available) return { ok: false, error: 'Action unavailable: check target, reach, facing, and held cup.' };
+    }
+    if (command.pace) a.strategy.pace = command.pace;
+    a.command = { ...command, id: ++a.commandSequence, startedAt: this.elapsed, remaining: (command.durationMs || 0) / 1000, start: { x: a.x, z: a.z }, status: 'running' };
+    a.decision = `Agent command: ${command.type}${command.targetId ? ` ${command.targetId}` : ''}`;
+    a.state = a.decision;
+    if (command.type === 'move') {
+      const length = Math.max(1, Math.hypot(command.x, command.z));
+      a.command.x /= length; a.command.z /= length;
+    } else if (command.type === 'look') {
+      a.heading = Math.atan2(Math.sin(command.heading), Math.cos(command.heading));
+      this.finishCommand(a);
+    } else if (command.type === 'stop') this.finishCommand(a);
+    else if (command.type === 'stand_up') { a.standingUp = true; a.recovery = 1.75; }
+    else if (command.type === 'drop') { this.dropCup(a); this.finishCommand(a); }
+    else if (command.type === 'push') this.shove(a, this.agents.find(other => other.id === command.targetId));
+    else if (['take', 'brew', 'place', 'deliver'].includes(command.type)) {
+      this.startInteraction(a, command.type === 'place' ? 'surface' : command.type, command.targetId, command.type === 'take' ? .42 : command.type === 'place' ? .55 : .65);
+    }
+    return { ok: true, command: { ...(a.command || a.lastCommand) } };
   }
   inReach(a, target, range = 1.05) {
     const d = distance(a, target);
@@ -128,16 +176,12 @@ export class CoffeeSimulation {
       result.push({ type: 'drop', label: 'Drop mug', targetId: cup.id });
     } else {
       const nearby = this.cups.filter(c => !c.holderId && !c.broken && !c.delivered && (c.rack || c.stationId || c.surfaceId || c.body.translation().y < .8) && this.inReach(a, this.cupTarget(c))).sort((c, d) => distance(a, this.cupTarget(c)) - distance(a, this.cupTarget(d)));
-      const targets = new Set();
       for (const c of nearby) {
-        const group = c.rack ? 'rack' : c.stationId || c.surfaceId || c.id;
-        if (targets.has(group)) continue; targets.add(group);
         result.push({ type: 'take', label: c.coffee > 0 ? `Take coffee (${Math.round(c.coffee)}%)` : 'Take mug', targetId: c.id });
       }
     }
     if (a.cooldown <= 0) {
-      const rival = this.agents.filter(b => b !== a && !b.fallen && this.elapsed >= b.safeUntil && this.inReach(a, b, 1.12)).sort((b, c) => distance(a, b) - distance(a, c))[0];
-      if (rival) result.push({ type: 'push', label: `Shove ${rival.name}`, targetId: rival.id });
+      for (const rival of this.agents.filter(b => b !== a && !b.fallen && this.elapsed >= b.safeUntil && this.inReach(a, b, 1.12))) result.push({ type: 'push', label: `Shove ${rival.name}`, targetId: rival.id });
     }
     return result;
   }
@@ -236,14 +280,6 @@ export class CoffeeSimulation {
     if (!this.blocked(goal, .33)) points.push({ x: goal.x, z: goal.z });
     return this.smoothPath(from, points, detour);
   }
-  assign(a, task, target, decision) {
-    const changed = a.task !== task || !a.target || distance(a.target, target) > .45;
-    a.task = task; a.target = { ...target }; a.decision = decision; a.state = decision;
-    if (changed || a.routeTimer <= 0) {
-      a.path = this.pathTo(a, target, a.strategy.route === 'detour' && Math.sign(a.x - .4) !== Math.sign(target.x - .4));
-      a.routeTimer = 1.1;
-    }
-  }
   cupTarget(cup) {
     return cup.rack ? LEVEL.cupRack : cup.stationId ? this.stations.find(s => s.id === cup.stationId) : cup.surfaceId ? this.surfaces.find(s => s.id === cup.surfaceId) : cup.body.translation();
   }
@@ -341,7 +377,8 @@ export class CoffeeSimulation {
   }
   fall(a, dx, dz, reason = 'lost their balance') {
     if (a.fallen || this.elapsed < a.safeUntil) return false;
-    a.fallen = true; a.recovery = 1.75; a.safeUntil = this.elapsed + 5;
+    this.cancelCommand(a.id, 'Runner fell');
+    a.fallen = true; a.standingUp = false; a.recovery = 1.75; a.safeUntil = this.elapsed + 5;
     a.falls++; a.interaction = null; a.action = 'fall'; a.moving = false;
     a.body.collider(0).setShape(new RAPIER.Ball(RADIUS));
     a.body.collider(0).setTranslation({ x: 0, y: -.42, z: 0 });
@@ -349,70 +386,6 @@ export class CoffeeSimulation {
     this.dropCup(a, dx, dz);
     a.body.applyImpulse({ x: dx * 5.5, y: 0, z: dz * 5.5 }, true);
     this.log(`${a.name} ${reason}.`, 'fall', a.id, a); return true;
-  }
-  choose(a) {
-    const cup = this.cupFor(a);
-    if (cup) {
-      if (cup.coffee >= 55) {
-        this.assign(a, 'deliver', LEVEL.customer.delivery, this.gate.closed ? 'Taking the open route to the customer' : a.strategy.pace === 'careful' ? 'Carrying steadily to the customer' : 'Racing to the customer');
-        return;
-      }
-      const opportunity = this.cups.filter(c => !c.holderId && !c.broken && c.coffee >= 55 && (c.stationId ? this.stations.find(s => s.id === c.stationId).ready : !c.rack && (c.surfaceId || c.body.translation().y < .7))).sort((c, d) => distance(a, this.cupTarget(c)) - distance(a, this.cupTarget(d)))[0];
-      const opportunityPosition = opportunity && (this.cupTarget(opportunity));
-      if (opportunity && a.strategy.aggression > .55 && distance(a, opportunityPosition) < 4) {
-        const surface = this.surfaces.find(s => !s.cupId && distance(a, s) < 2.5);
-        if (surface) { this.assign(a, `surface:${surface.id}`, surface, 'Parking a spare mug before taking a ready coffee'); return; }
-        this.dropCup(a, -.3, .3);
-        this.assign(a, `take:${opportunity.id}`, opportunityPosition, 'Dropping an empty mug to seize a prepared coffee');
-        return;
-      }
-      const free = this.stations.filter(s => !s.cupId).sort((s, t) => distance(a, s) - distance(a, t))[0];
-      if (free) this.assign(a, `brew:${free.id}`, free, cup.coffee > 0 ? 'Refilling a spilled coffee' : 'Preparing the shared machine');
-      else if (a.strategy.aggression > .5 && this.stations.every(s => s.progress < .8) && this.surfaces.some(s => !s.cupId)) {
-        const surface = this.surfaces.filter(s => !s.cupId).sort((s, t) => distance(a, s) - distance(a, t))[0];
-        this.assign(a, `surface:${surface.id}`, surface, 'Staging a spare mug while both machines brew');
-      }
-      else this.assign(a, 'wait-machine', { x: -6.5 + (RUNNERS.findIndex(r => r.id === a.id) % 3) * .75, z: -2.8 }, 'Waiting for a free machine');
-      return;
-    }
-    const available = this.cups.filter(c => !c.holderId && !c.broken && !c.rack && (c.stationId ? this.stations.find(s => s.id === c.stationId).ready : c.coffee >= 55 && (c.surfaceId || this.elapsed - c.releasedAt > .55 && c.body.translation().y < .7)));
-    available.sort((c, d) => {
-      const score = c => c.coffee * .12 - distance(a, this.cupTarget(c)) + (c.lastHolderId === a.id ? 1.5 : a.strategy.aggression * 3);
-      return score(d) - score(c);
-    });
-    if (available[0]) {
-      const best = available[0], location = this.cupTarget(best);
-      this.assign(a, `take:${best.id}`, location, best.lastHolderId === a.id ? 'Recovering the prepared coffee' : 'Taking an unattended opportunity'); return;
-    }
-    const brewing = this.stations.find(s => s.ownerId === a.id && s.cupId);
-    if (brewing) {
-      const rivals = this.agents.filter(other => other !== a && other.carrying && other.coffee >= 55 && distance(a, other) < 4);
-      if (rivals[0] && a.strategy.aggression > .6) {
-        this.assign(a, `contest:${rivals[0].id}`, rivals[0], 'Leaving the brew to contest the leader');
-      } else {
-        const index = RUNNERS.findIndex(r => r.id === a.id);
-        const guard = a.strategy.aggression < .3;
-        const target = guard ? { x: brewing.x + (index % 2 ? .62 : -.62), z: -3.65 } : { x: -3.2 + (index % 2) * .7, z: -2.2 - (index % 3) * .65 };
-        this.assign(a, 'guard', target, guard ? 'Protecting the brewing coffee' : 'Leaving a coffee brewing unattended');
-      }
-      return;
-    }
-    const parked = this.cups.find(c => c.id === a.parkedCupId && c.surfaceId && !c.holderId && !c.broken);
-    if (parked) {
-      if (this.stations.some(s => !s.cupId)) this.assign(a, `take:${parked.id}`, this.cupTarget(parked), 'Retrieving the staged mug for a free machine');
-      else {
-        const rival = this.agents.find(b => b !== a && b.coffee >= 55 && distance(a, b) < 4);
-        if (rival && a.strategy.aggression > .6) this.assign(a, `contest:${rival.id}`, rival, 'Contesting the leader while a spare mug waits');
-        else this.assign(a, 'guard', { x: -3.1, z: -2.1 }, 'Watching the machines while a spare mug waits on the island');
-      }
-      return;
-    }
-    const recoverable = this.cups.filter(c => !c.holderId && !c.stationId && !c.rack && !c.broken && (c.surfaceId || c.body.translation().y < .7 && this.elapsed - c.releasedAt > 1)).sort((c, d) => distance(a, this.cupTarget(c)) - distance(a, this.cupTarget(d)));
-    if (recoverable[0] && distance(a, this.cupTarget(recoverable[0])) < 4) {
-      const c = recoverable[0]; this.assign(a, `take:${c.id}`, this.cupTarget(c), c.surfaceId ? 'Reusing a mug from the shared worktop' : 'Recovering a fallen mug'); return;
-    }
-    if (!this.cups.some(c => c.rack && !c.broken)) this.createCup();
-    this.assign(a, 'rack', { x: LEVEL.cupRack.x + (RUNNERS.findIndex(r => r.id === a.id) % 3 - 1) * .5, z: LEVEL.cupRack.z }, 'Fetching a fresh mug');
   }
   startInteraction(a, type, id, duration) {
     a.interaction = { type, id, remaining: duration, duration }; a.action = 'interact'; a.moving = false;
@@ -423,10 +396,10 @@ export class CoffeeSimulation {
   }
   completeInteraction(a) {
     const interaction = a.interaction; a.interaction = null;
-    if (!interaction || this.finished) return;
-    if (interaction.type === 'take') this.takeCup(a, this.cups.find(c => c.id === interaction.id));
-    else if (interaction.type === 'surface') this.placeOnSurface(a, this.surfaces.find(s => s.id === interaction.id));
-    else if (interaction.type === 'brew') this.placeCup(a, this.stations.find(s => s.id === interaction.id));
+    if (!interaction || this.finished) return false;
+    if (interaction.type === 'take') return this.takeCup(a, this.cups.find(c => c.id === interaction.id));
+    else if (interaction.type === 'surface') return this.placeOnSurface(a, this.surfaces.find(s => s.id === interaction.id));
+    else if (interaction.type === 'brew') return this.placeCup(a, this.stations.find(s => s.id === interaction.id));
     else if (interaction.type === 'deliver') {
       const cup = this.cupFor(a);
       if (cup && !cup.broken && cup.coffee >= 55 && distance(a, LEVEL.customer.delivery) < .85) {
@@ -439,23 +412,28 @@ export class CoffeeSimulation {
         a.delivered = true; a.progress = 1; a.coffee = cup.coffee; a.state = 'Coffee served!'; a.action = 'interact'; a.moving = false;
         this.winner = a.id; this.finished = true;
         this.log(`${a.name} served ${Math.round(cup.coffee)}% coffee to the waiting customer!`, 'win', a.id, LEVEL.customer.delivery);
+        return true;
       }
     }
     a.rethink = 0;
+    return false;
   }
   control(a, dt) {
     a.cooldown -= dt; a.rethink -= dt; a.routeTimer -= dt; a.inputAge += dt;
     const p = a.body.translation(); a.x = p.x; a.z = p.z;
     if (a.fallen) {
       a.pendingActions = {};
-      a.recovery -= dt; a.action = a.recovery < .65 ? 'recover' : 'fall';
+      if (a.standingUp) a.recovery -= dt;
+      a.action = a.standingUp && a.recovery < .65 ? 'recover' : 'fall';
       a.body.setLinvel({ x: a.body.linvel().x * .92, y: 0, z: a.body.linvel().z * .92 }, true);
-      if (a.recovery <= 0) { a.body.collider(0).setShape(new RAPIER.Capsule(.44, RADIUS)); a.body.collider(0).setTranslation({ x: 0, y: 0, z: 0 }); a.body.collider(0).setRotation({ x: 0, y: 0, z: 0, w: 1 }); a.fallen = false; a.rethink = 0; a.path = []; this.log(`${a.name} is back on their feet.`, 'recover', a.id, a); }
+      if (a.recovery <= 0) { a.body.collider(0).setShape(new RAPIER.Capsule(.44, RADIUS)); a.body.collider(0).setTranslation({ x: 0, y: 0, z: 0 }); a.body.collider(0).setRotation({ x: 0, y: 0, z: 0, w: 1 }); a.fallen = false; a.standingUp = false; this.finishCommand(a); this.log(`${a.name} is back on their feet.`, 'recover', a.id, a); }
+      else if (a.command?.type === 'wait') { a.command.remaining -= dt; if (a.command.remaining <= 0) this.finishCommand(a); }
       return;
     }
     if (a.pushTimer > 0) {
       a.pendingActions = {};
       a.pushTimer -= dt; a.action = 'push'; a.moving = false;
+      if (a.pushTimer <= 0) this.finishCommand(a);
       a.vx *= .72; a.vz *= .72;
       a.body.setLinvel({ x: a.vx, y: 0, z: a.vz }, true);
       return;
@@ -465,49 +443,20 @@ export class CoffeeSimulation {
       a.action = 'interact'; a.moving = false; a.vx *= .7; a.vz *= .7;
       a.body.setLinvel({ x: a.vx, y: 0, z: a.vz }, true);
       a.interaction.remaining -= dt;
-      if (a.interaction.remaining <= 0) this.completeInteraction(a);
+      if (a.interaction.remaining <= 0) {
+        const success = this.completeInteraction(a);
+        this.finishCommand(a, success ? 'completed' : 'failed', success ? null : 'The target changed before the action completed.');
+      }
       return;
     }
     if (a.controlled) { this.manualControl(a, dt); return; }
-    if (a.rethink <= 0) { this.choose(a); a.rethink = .4 + this.rand() * .25; }
-    const reach = a.task?.startsWith('take:') ? .78 : a.task === 'rack' ? .72 : .64;
-    if (a.target && distance(a, a.target) < reach) {
-      a.moving = false; a.path = [];
-      if (a.task === 'rack') {
-        const cup = this.cups.find(c => c.rack && !c.holderId && !c.broken);
-        if (cup) this.startInteraction(a, 'take', cup.id, .42);
-      } else if (a.task?.startsWith('take:')) this.startInteraction(a, 'take', a.task.slice(5), .42);
-      else if (a.task?.startsWith('brew:')) this.startInteraction(a, 'brew', a.task.slice(5), .65);
-      else if (a.task?.startsWith('surface:')) this.startInteraction(a, 'surface', a.task.slice(8), .55);
-      else if (a.task === 'deliver') this.startInteraction(a, 'deliver', null, .65);
-    }
-    while (a.path.length && distance(a, a.path[0]) < .16) a.path.shift();
-    if (a.path.length > 1 && this.lineClear(a, a.path[1], a.strategy.route === 'detour')) a.path.shift();
-    let vx = 0, vz = 0;
-    if (a.path[0] && !a.interaction) {
-      const target = a.path[0], d = distance(a, target);
+    const command = a.command;
+    if (command && ['move', 'wait'].includes(command.type)) {
       const speed = this.movementSpeed(a);
-      vx = (target.x - a.x) / d * speed; vz = (target.z - a.z) / d * speed;
-      // Side-stepping uses physical neighbors; deterministic priority keeps queues moving.
-      for (const other of this.agents) {
-        if (other === a || other.fallen) continue;
-        const gap = distance(a, other);
-        if (gap < 1.05 && gap > .01) {
-          const pressure = (1.05 - gap) * 1.4;
-          vx += (a.x - other.x) / gap * pressure; vz += (a.z - other.z) / gap * pressure;
-          if (a.id > other.id && gap < .8) { vx += -(other.z - a.z) / gap * .5; vz += (other.x - a.x) / gap * .5; }
-        }
-      }
-    }
-    this.moveAgent(a, vx, vz, dt);
-    if (a.moving && distance(a, a.lastPosition) < .018) a.stuckTime += dt; else a.stuckTime = Math.max(0, a.stuckTime - dt * 2);
-    a.lastPosition = { x: a.x, z: a.z };
-    if (a.stuckTime > 1) {
-      a.routeTimer = 0; a.rethink = 0; a.path = [];
-      const side = RUNNERS.findIndex(r => r.id === a.id) % 2 ? 1 : -1;
-      a.body.applyImpulse({ x: Math.cos(a.heading) * side * 2, y: 0, z: -Math.sin(a.heading) * side * 2 }, true);
-      a.stuckTime = .3;
-    }
+      this.moveAgent(a, command.type === 'move' ? command.x * speed : 0, command.type === 'move' ? command.z * speed : 0, dt);
+      command.remaining -= dt;
+      if (command.remaining <= 1e-9) this.finishCommand(a);
+    } else this.moveAgent(a, 0, 0, dt);
   }
   breakCup(cup, position, message) {
     cup.broken = true; this.spill(cup, cup.coffee, position);
@@ -561,14 +510,6 @@ export class CoffeeSimulation {
     this.log(`${a.name} shoved ${victim.name}; the mug must drop before it can be taken.`, 'push', a.id, a);
     return true;
   }
-  contest() {
-    for (const a of this.agents) {
-      if (a.controlled || a.fallen || a.interaction || a.cooldown > 0) continue;
-      const victim = this.agents.find(b => b !== a && !b.fallen && b.carrying && b.coffee >= 55 && distance(a, b) < 1.08);
-      if (!victim || a.coffee >= 55 || this.rand() > a.strategy.aggression * .028) continue;
-      this.shove(a, victim);
-    }
-  }
   fixedStep(dt) {
     this.elapsed += dt;
     const closed = (this.elapsed + 8) % LEVEL.gate.period >= LEVEL.gate.period - LEVEL.gate.closedFor;
@@ -591,7 +532,6 @@ export class CoffeeSimulation {
         a.progress = c?.coffee >= 55 ? .63 + clamp(1 - distance(a, LEVEL.customer.delivery) / 18, 0, 1) * .35 : station ? .34 + station.progress * .25 : c ? .2 + clamp(1 - Math.min(...this.stations.map(s => distance(a, s))) / 12, 0, 1) * .12 : .06;
       }
     }
-    this.contest();
     this.spills = this.spills.filter(s => (s.ttl -= dt) > 0).slice(-32);
   }
   step(dt) {
@@ -606,7 +546,7 @@ export class CoffeeSimulation {
   }
   snapshot() {
     return { elapsed: this.elapsed, winner: this.winner, finished: this.finished, timedOut: !!this.timedOut,
-      agents: this.agents.map(a => ({ id: a.id, name: a.name, color: a.color, trait: a.trait, x: a.x, y: a.y, z: a.z, vx: a.body.linvel().x, vz: a.body.linvel().z, heading: a.heading, coffee: a.coffee, carrying: a.carrying, cupId: a.cupId, state: a.state, action: a.action, moving: a.moving, fallen: a.fallen, recovery: a.recovery, pushRemaining: a.pushTimer, progress: a.progress, decision: a.decision, controlled: a.controlled, availableActions: this.availableActions(a), contextualAction: this.availableActions(a).find(action => !['drop', 'push'].includes(action.type)) || null, pace: a.strategy.pace, route: a.strategy.route, delivered: a.delivered, interaction: a.interaction ? { ...a.interaction } : null, falls: a.falls, steals: a.steals })),
+      agents: this.agents.map(a => ({ id: a.id, name: a.name, color: a.color, trait: a.trait, x: a.x, y: a.y, z: a.z, vx: a.body.linvel().x, vz: a.body.linvel().z, heading: a.heading, coffee: a.coffee, carrying: a.carrying, cupId: a.cupId, state: a.state, action: a.action, moving: a.moving, fallen: a.fallen, recovery: a.recovery, pushRemaining: a.pushTimer, progress: a.progress, decision: a.decision, controlled: a.controlled, command: a.command ? structuredClone(a.command) : null, lastCommand: a.lastCommand ? structuredClone(a.lastCommand) : null, standingUp: a.standingUp, speed: this.movementSpeed(a), availableActions: this.availableActions(a), contextualAction: this.availableActions(a).find(action => !['drop', 'push'].includes(action.type)) || null, pace: a.strategy.pace, route: a.strategy.route, delivered: a.delivered, interaction: a.interaction ? { ...a.interaction } : null, falls: a.falls, steals: a.steals })),
       cups: this.cups.map(c => {
         const p = c.body.translation(), q = c.body.rotation();
         const offset = { x: .34 * (q.x * q.y - q.w * q.z), y: .17 * (1 - 2 * (q.x * q.x + q.z * q.z)), z: .34 * (q.y * q.z + q.w * q.x) };
