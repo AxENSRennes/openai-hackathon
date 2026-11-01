@@ -51,3 +51,11 @@ The low-resolution software capture must not be presented as a final native-qual
 ### Concurrent work preserved
 
 Other chats changed the workspace during verification: Remotion dependencies, removal of antislop instruction skills, and a new explicit per-action API/voice controller. Their work was preserved. It changes the autonomy contract and restarted port 5174 during manual tests, so rebuild verification moved to an isolated detached worktree at `/tmp/coffee-run-level4-validation` on port 5175. No migration or production deployment was performed. The rebuild commits and draft review describe their own tested snapshot; they do not claim validation of the other chats' uncommitted changes. Rebuild commits exclude those unrelated modifications.
+
+## Final browser review of the integrated command-controller snapshot
+
+The rebuild review personally reran all 46 current tests and the production build successfully. A complete real-WebGL keyboard round on port 5174 delivered the persistent mug with 96.55% remaining at 74.85 seconds, with no browser script errors. Five rivals were held idle for this input-isolation scenario. The separate earlier keyboard round on port 5175 delivered 100%; its results must not be substituted for the newer controller snapshot.
+
+Full-PBR browser material inspection and the keyboard delivery capture are preserved in `review/`. `GAMEPLAY_REVIEW.md` compares actual scenes/sequences with the official normal-gameplay references and assesses every quality dimension. Level 4 remains unachieved: target-aware contact, animation timing, material/light finish, item/indicator readability, and native GPU fluidity remain open.
+
+During this task, another chat committed the explicit controller work and published it through `main`. The rebuild review did not trigger that deployment. Subsequent mascot and loading work use separate branches/worktrees. The review documentation is isolated on `rebuild/level4-vps`, without modifying those working files or changing production.
