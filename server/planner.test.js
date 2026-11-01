@@ -66,3 +66,40 @@ test('a delayed model response from an ended round cannot control a new race', a
     else process.env.OPENAI_API_KEY = previousKey;
   }
 });
+
+test('model context describes the shared customer and authoritative persistent objects', async () => {
+  const previousKey = process.env.OPENAI_API_KEY;
+  const previousFetch = globalThis.fetch;
+  process.env.OPENAI_API_KEY = 'test-key';
+  let request;
+  globalThis.fetch = async (_url, options) => {
+    request = JSON.parse(options.body);
+    return { ok: true, json: async () => ({ output_text: '{"decisions":[]}' }) };
+  };
+  try {
+    const planner = new AgentPlanner(runners);
+    const state = { ...snapshot, cups: [{ id: 'cup-1', holderId: null, coffee: 100 }], stations: [{ id: 'brew-a', ready: true }], gate: { closed: true } };
+    await planner.plan(state);
+    assert.match(request.instructions, /single shared waiting customer/);
+    assert.match(request.instructions, /held mugs must first be dropped/);
+    const context = JSON.parse(request.input);
+    assert.deepEqual(context.cups, state.cups);
+    assert.deepEqual(context.stations, state.stations);
+    assert.deepEqual(context.gate, state.gate);
+    planner.dispose();
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousKey;
+  }
+});
+
+test('model tactics cannot change a runner under direct player control', async () => {
+  const planner = new AgentPlanner(runners), calls = [];
+  planner.enabled = true;
+  planner.plan = async () => [{ id: 'pip', pace: 'careful', route: 'detour', aggression: 1 }];
+  planner.update({ setStrategy: (...args) => calls.push(args) }, { ...snapshot, agents: [{ id: 'pip', controlled: true }] });
+  await flush();
+  assert.deepEqual(calls, []);
+  planner.dispose();
+});

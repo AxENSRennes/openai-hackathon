@@ -52,7 +52,7 @@ export class AgentPlanner {
     this.plan(snapshot).then((decisions) => {
       if (generation !== this.generation || snapshot.finished) return;
       for (const decision of decisions) {
-        if (!this.runners.some((runner) => runner.id === decision.id)) continue;
+        if (!this.runners.some((runner) => runner.id === decision.id) || snapshot.agents.some(a => a.id === decision.id && a.controlled)) continue;
         if (!['careful', 'fast'].includes(decision.pace) || !['direct', 'detour'].includes(decision.route)) continue;
         simulation.setStrategy(decision.id, {
           pace: decision.pace,
@@ -77,7 +77,7 @@ export class AgentPlanner {
     this.controller = new AbortController();
     const timeout = setTimeout(() => this.controller?.abort(), 12_000);
     try {
-      const agents = snapshot.agents.map(({ id, x, z, coffee, carrying, fallen, state, progress }) => ({ id, x, z, coffee, carrying, fallen, state, progress }));
+      const agents = snapshot.agents.map(({ id, x, z, coffee, carrying, cupId, controlled, fallen, state, action, decision, progress }) => ({ id, x, z, coffee, carrying, cupId, controlled, fallen, state, action, decision, progress }));
       const response = await fetch('https://api.openai.com/v1/responses', {
         method: 'POST',
         headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
@@ -86,8 +86,8 @@ export class AgentPlanner {
           model: this.model,
           store: false,
           max_output_tokens: 1200,
-          instructions: 'You are the tactical controller for six competing coffee delivery agents in a physical office race. Each agent wants to deliver a sufficiently full coffee to its own desk before anyone else. Choose pace (careful protects coffee, fast wins distance but risks spills), route (direct passes a crowded doorway, detour is longer and safer), and aggression (0 to 1; high pushes and steals but risks collisions). Preserve each runner personality while adapting to the observed race. Every agent is trying to win. Return a decision for every runner. Positions and physical failures are authoritative game state; never invent new actions.',
-          input: JSON.stringify({ runners: this.runners, elapsed: snapshot.elapsed, agents, spills: snapshot.spills, recentEvents: snapshot.events?.slice(0, 6) }),
+          instructions: 'You are the tactical controller for six competing coffee delivery agents in a physical office race. Each agent wants to deliver one coffee with at least 55% remaining to the single shared waiting customer before anyone else. Cups are persistent shared objects. Brewing continues unattended; placed mugs can be stolen, held mugs must first be dropped by a collision. Failed cups can be refilled or replaced. The timed middle gate creates a longer south detour. Choose pace (careful protects coffee, fast wins distance but risks spills), route (direct passes a crowded doorway, detour is longer and safer), and aggression (0 to 1; high pushes and steals but risks collisions). Preserve each runner personality while adapting to the observed race. Every autonomous agent is trying to win. Some runners may be controlled directly by a human; do not issue decisions for controlled runners. Return decisions for autonomous runners. Positions and physical failures are authoritative game state; never invent new actions.',
+          input: JSON.stringify({ runners: this.runners, elapsed: snapshot.elapsed, agents, cups: snapshot.cups, stations: snapshot.stations, surfaces: snapshot.surfaces, gate: snapshot.gate, spills: snapshot.spills, recentEvents: snapshot.events?.slice(0, 6) }),
           text: { format: { type: 'json_schema', name: 'coffee_race_tactics', strict: true, schema: decisionSchema } },
         }),
       });

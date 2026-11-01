@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { existsSync } from 'node:fs';
 import { Server } from 'socket.io';
-import { CoffeeSimulation, RUNNERS } from '../shared/simulation.js';
+import { CoffeeSimulation, RUNNERS, initializePhysics } from '../shared/simulation.js';
 import { BettingBook } from './betting.js';
 import { AgentPlanner } from './planner.js';
 
@@ -20,9 +20,11 @@ const http = createServer(app);
 const io = new Server(http, { maxHttpBufferSize: 16_384, pingTimeout: 20_000 });
 const book = new BettingBook(RUNNERS);
 const planner = new AgentPlanner(RUNNERS);
+const agentOwners = new Map();
 let round = 1;
 let phase = 'betting';
 let phaseStarted = Date.now();
+await initializePhysics();
 let simulation = new CoffeeSimulation({ round });
 let lastResults = [];
 let latestSnapshot = simulation.snapshot();
@@ -85,11 +87,15 @@ function endRace() {
 }
 
 function nextRound({ refund = false } = {}) {
+  agentOwners.clear();
+  for (const socket of io.sockets.sockets.values()) { socket.data.controlledAgentId = null; socket.data.lastInputAt = 0; }
   book.reset({ refund });
   round += 1;
   phase = 'betting';
   phaseStarted = Date.now();
+  simulation.dispose();
   simulation = new CoffeeSimulation({ round });
+  accumulator = 0;
   latestSnapshot = simulation.snapshot();
   planner.reset();
   emitPlayers();
@@ -118,6 +124,36 @@ io.on('connection', (socket) => {
       io.emit('state', publicState());
     } else socket.emit('game:error', { message: result.error });
   });
+  socket.on('agent:control', (payload = {}, callback) => {
+    const reply = result => { if (typeof callback === 'function') callback(result); };
+    if (!payload || typeof payload !== 'object') return reply({ ok: false, error: 'Invalid control request.' });
+    const prior = socket.data.controlledAgentId;
+    if (!payload.enabled) {
+      if (prior) { simulation.setControl(prior, false); agentOwners.delete(prior); socket.data.controlledAgentId = null; }
+      latestSnapshot = simulation.snapshot(); io.emit('state', publicState());
+      return reply({ ok: true, agentId: null });
+    }
+    if (!RUNNERS.some(r => r.id === payload.id)) return reply({ ok: false, error: 'Unknown runner.' });
+    const owner = agentOwners.get(payload.id);
+    if (owner && owner !== socket.id) return reply({ ok: false, error: 'This runner is already controlled by another player.' });
+    if (prior === payload.id && owner === socket.id) return reply({ ok: true, agentId: payload.id });
+    if (prior && prior !== payload.id) { simulation.setControl(prior, false); agentOwners.delete(prior); }
+    socket.data.controlledAgentId = payload.id; socket.data.lastInputAt = 0; agentOwners.set(payload.id, socket.id);
+    simulation.setControl(payload.id, true); latestSnapshot = simulation.snapshot();
+    io.emit('state', publicState()); reply({ ok: true, agentId: payload.id });
+  });
+  socket.on('agent:input', (input = {}) => {
+    const id = socket.data.controlledAgentId;
+    if (phase !== 'racing' || !id || agentOwners.get(id) !== socket.id) return;
+    if (simulation.setInput(id, input)) socket.data.lastInputAt = performance.now();
+  });
+  socket.on('disconnect', () => {
+    if (shuttingDown) return;
+    const id = socket.data.controlledAgentId;
+    if (!id || agentOwners.get(id) !== socket.id) return;
+    agentOwners.delete(id); simulation.setControl(id, false); latestSnapshot = simulation.snapshot();
+    io.emit('state', publicState());
+  });
   socket.on('host:start', (callback) => {
     const ok = beginRace();
     if (typeof callback === 'function') callback({ ok, error: ok ? undefined : 'The race is already underway.' });
@@ -139,12 +175,23 @@ if (production) {
 }
 
 let previousTick = performance.now();
+let accumulator = 0;
+const fixedStep = 1 / 60;
 const interval = setInterval(() => {
   const now = performance.now();
   const delta = Math.min((now - previousTick) / 1000, 0.1);
   previousTick = now;
   if (phase === 'racing') {
-    simulation.step(delta);
+    if (Date.now() - phaseStarted >= durations.racing * 1000) { endRace(); return; }
+    for (const [id, owner] of agentOwners) {
+      const socket = io.sockets.sockets.get(owner);
+      if (!socket || now - (socket.data.lastInputAt || 0) > 350) simulation.stopInput(id);
+    }
+    accumulator += delta;
+    while (accumulator >= fixedStep && !simulation.finished) {
+      simulation.step(fixedStep);
+      accumulator -= fixedStep;
+    }
     latestSnapshot = simulation.snapshot();
     planner.update(simulation, latestSnapshot);
     if (latestSnapshot.finished || Date.now() - phaseStarted >= durations.racing * 1000) endRace();
@@ -162,12 +209,26 @@ http.listen(port, '0.0.0.0', () => {
   console.log(`Agent controller: ${planner.mode}`);
 });
 
+let shuttingDown = false;
 async function shutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
   clearInterval(interval);
   planner.dispose();
-  await vite?.close();
-  io.close();
-  http.close(() => process.exit(0));
+  simulation.dispose();
+  const deadline = setTimeout(() => {
+    http.closeAllConnections();
+    process.exit(1);
+  }, 5000);
+  deadline.unref();
+  io.disconnectSockets(true);
+  await Promise.allSettled([
+    new Promise(resolve => io.close(resolve)),
+    vite?.close(),
+    new Promise(resolve => http.close(resolve)),
+  ]);
+  clearTimeout(deadline);
+  process.exit(0);
 }
 process.once('SIGINT', shutdown);
 process.once('SIGTERM', shutdown);

@@ -1,26 +1,15 @@
-export const RUNNERS = [
-  { id: 'pip', name: 'Pip', color: '#ea7055', trait: 'Small legs. Big plans.', speed: 1.12, aggression: .42 },
-  { id: 'bolt', name: 'Bolt', color: '#e4b441', trait: 'Absolutely no brakes.', speed: 1.35, aggression: .72 },
-  { id: 'miso', name: 'Miso', color: '#81bfa8', trait: 'Slow coffee is good coffee.', speed: .95, aggression: .15 },
-  { id: 'clawd', name: 'Clawd', color: '#9588ca', trait: 'Your coffee? Our coffee.', speed: 1.05, aggression: .95 },
-  { id: 'byte', name: 'Byte', color: '#6aa6ce', trait: 'Recalculating the obvious.', speed: 1.13, aggression: .32 },
-  { id: 'gary', name: 'Gary', color: '#d58ba8', trait: 'Just happy to be employed.', speed: 1.04, aggression: .3 },
-];
+import { LEVEL, RUNNERS } from './level.js';
+import { createPhysicsWorld, RAPIER } from './physics.js';
+export { RUNNERS, LEVEL } from './level.js';
+export { initializePhysics } from './physics.js';
 
-export const MAP = {
-  width: 22, depth: 14,
-  cups: { x: -8.3, z: 3.2 }, machine: { x: -8.1, z: -3.6 },
-  obstacles: [
-    { x: -10, z: -5.3, w: 2.7, d: 1.7, type: 'counter' },
-    { x: -9.6, z: 4.7, w: 3.2, d: 1.35, type: 'counter' },
-    { x: -5.5, z: -.3, w: 2.5, d: 2.5, type: 'island' },
-    { x: -.8, z: -3.7, w: .45, d: 4.5, type: 'partition' },
-    { x: -.8, z: 2.7, w: .45, d: 3, type: 'partition' },
-    ...[-4, 0, 4].flatMap(z => [6, 9.3].map(x => ({ x, z, w: 2.05, d: 1.2, type: 'desk' }))),
-  ],
-  desks: [-4, 0, 4].flatMap(z => [6, 9.3].map(x => ({ x, z, targetX: x, targetZ: z + 1.25 }))),
-};
-
+const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
+const distance = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
+const STEP = 1 / 60;
+const RADIUS = .32;
+const GRID = .4;
+const ORIGIN = { x: -9.2, z: -6.2 };
+const WIDTH = 47, DEPTH = 32;
 function randomFrom(seed) {
   return () => {
     seed |= 0; seed = seed + 0x6d2b79f5 | 0;
@@ -29,217 +18,607 @@ function randomFrom(seed) {
     return ((t ^ t >>> 14) >>> 0) / 4294967296;
   };
 }
-const clamp = (n, low, high) => Math.max(low, Math.min(high, n));
-const distance = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
-const GRID = .5;
-const inside = (x, z, margin = .32) => MAP.obstacles.some(o => Math.abs(x - o.x) < o.w / 2 + margin && Math.abs(z - o.z) < o.d / 2 + margin);
-
-function pathTo(from, goal) {
-  const toCell = p => [Math.round((p.x + 10.5) / GRID), Math.round((p.z + 6.5) / GRID)];
-  const toPoint = (x, z) => ({ x: x * GRID - 10.5, z: z * GRID - 6.5 });
-  const key = (x, z) => z * 43 + x;
-  const start = toCell(from), end = toCell(goal);
-  const queue = [{ x: start[0], z: start[1], g: 0, f: 0 }];
-  const visited = new Map([[key(...start), { parent: null }]]);
-  let current, reached = false;
-  while (queue.length) {
-    queue.sort((a, b) => b.f - a.f);
-    current = queue.pop();
-    if (Math.abs(current.x - end[0]) + Math.abs(current.z - end[1]) <= 1) { reached = true; break; }
-    for (const [dx, dz] of [[1,0],[-1,0],[0,1],[0,-1]]) {
-      const x = current.x + dx, z = current.z + dz;
-      if (x < 0 || x > 42 || z < 0 || z > 26 || visited.has(key(x,z))) continue;
-      const p = toPoint(x,z);
-      if (inside(p.x,p.z)) continue;
-      const g = current.g + 1;
-      visited.set(key(x,z), { parent: key(current.x,current.z), x, z });
-      queue.push({ x,z,g,f:g + Math.abs(x-end[0]) + Math.abs(z-end[1]) });
-    }
-  }
-  if (!current || !reached) return [];
-  const points = [];
-  let k = key(current.x,current.z);
-  while (visited.get(k)?.parent !== null && visited.get(k)) {
-    const node = visited.get(k);
-    points.unshift(toPoint(node.x,node.z));
-    k = node.parent;
-  }
-  points.push({ ...goal });
-  return points;
-}
+const inRectangle = (point, obstacle, margin) => Math.abs(point.x - obstacle.x) < obstacle.w / 2 + margin && Math.abs(point.z - obstacle.z) < obstacle.d / 2 + margin;
 
 export class CoffeeSimulation {
   constructor({ round = 1 } = {}) {
     this.round = round; this.rand = randomFrom(round * 9199 + 42);
-    this.elapsed = 0; this.winner = null; this.finished = false; this.events = []; this.spills = []; this.eventId = 0;
-    const homeOrder = MAP.desks.map((_, i) => i);
-    for (let i = homeOrder.length - 1; i > 0; i--) {
-      const j = Math.floor(this.rand() * (i + 1));
-      [homeOrder[i], homeOrder[j]] = [homeOrder[j], homeOrder[i]];
-    }
+    this.elapsed = 0; this.accumulator = 0; this.winner = null; this.finished = false;
+    this.events = []; this.spills = []; this.eventId = 0; this.cupSequence = 0;
+    this.world = createPhysicsWorld();
+    this.gate = { ...LEVEL.gate, closed: false, nextChange: 14 };
+    this.createBox({ x: 0, z: 0, w: 22, d: 16, h: .2 }, -.2);
+    for (const o of LEVEL.obstacles) this.createBox(o);
+    const b = LEVEL.bounds;
+    this.createBox({ x: b.minX - .15, z: 0, w: .3, d: 14, h: 2 });
+    this.createBox({ x: b.maxX + .15, z: 0, w: .3, d: 14, h: 2 });
+    this.createBox({ x: 0, z: b.minZ - .15, w: 20, d: .3, h: 2 });
+    this.createBox({ x: 0, z: b.maxZ + .15, w: 20, d: .3, h: 2 });
+    this.gateBody = this.world.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(this.gate.x, -2, this.gate.z));
+    this.world.createCollider(RAPIER.ColliderDesc.cuboid(this.gate.w / 2, .65, this.gate.d / 2), this.gateBody);
+    this.stations = LEVEL.stations.map(s => ({ ...s, cupId: null, ownerId: null, progress: 0, busy: false, ready: false }));
+    this.surfaces = [{ id: 'island-stage', x: -4.1, z: 1.55, cupX: -4.1, cupY: 1.08, cupZ: .65, cupId: null }, { id: 'prep-stage', x: -3.45, z: 2.6, cupX: -2.55, cupY: 1.02, cupZ: 2.6, cupId: null }];
+    this.cups = [];
+    for (let i = 0; i < 12; i++) this.createCup();
     this.agents = RUNNERS.map((r, i) => {
-      const homeIndex = homeOrder[i], desk = MAP.desks[homeIndex];
-      return { ...r, speed: r.speed * (.9 + this.rand() * .2), homeIndex, home: { x: desk.targetX, z: desk.targetZ }, x: desk.targetX, z: desk.targetZ, vx: 0, vz: 0, heading: Math.PI, coffee: 0, carrying: false, state: 'Getting a cup', stage: 'cup', fallen: false, fallTimer: 0, cooldown: 1 + this.rand() * 2, slipCooldown: 0, progress: 0, wait: 0, path: [], moving: false, desk, steals: 0, falls: 0, delivered: false, strategy: { pace: i === 2 ? 'careful' : 'fast', route: this.rand() < (i === 2 ? .65 : i === 4 ? .45 : .1) ? 'detour' : 'direct', aggression: r.aggression }, routeLeg: false };
+      const p = LEVEL.spawns[i];
+      const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(p.x, .78, p.z).lockRotations().enabledTranslations(true, false, true).setLinearDamping(4).setCcdEnabled(true));
+      this.world.createCollider(RAPIER.ColliderDesc.capsule(.44, RADIUS).setMass(4).setFriction(.05).setRestitution(0).setCollisionGroups(((1 << (i + 1)) << 16) | 0xffff), body);
+      return { ...r, ...p, y: 0, body, vx: 0, vz: 0, heading: Math.PI, coffee: 0, carrying: false, cupId: null,
+        state: 'Finding a cup', action: 'idle', moving: false, fallen: false, progress: 0, delivered: false,
+        decision: 'Prepare a fresh coffee', strategy: { pace: i === 2 ? 'careful' : 'fast', route: i === 4 ? 'detour' : 'direct', aggression: r.aggression },
+        cooldown: 1 + this.rand() * 2, pushTimer: 0, recovery: 0, safeUntil: 0, rethink: .1 + this.rand() * .65,
+        path: [], target: null, task: null, interaction: null, routeTimer: 0, stuckTime: 0, lastPosition: { ...p },
+        controlled: false, input: { x: 0, z: 0, interact: false, drop: false, push: false }, pendingActions: {}, inputAge: Infinity, previousVelocity: { x: 0, z: 0 }, slipExposure: 0, parkedCupId: null, variation: .91 + this.rand() * .18, stationsUsed: 0, steals: 0, falls: 0,
+      };
     });
-    this.props = [{id:'chair-1',x:2.2,z:.9,vx:0,vz:0},{id:'chair-2',x:4.3,z:-2.1,vx:0,vz:0},{id:'chair-3',x:3,z:4.5,vx:0,vz:0}];
-    this.log('Six agents. One coffee machine. What could go wrong?', 'info');
-    for (const a of this.agents) this.route(a, MAP.cups);
+    this.props = LEVEL.chairs.map(p => {
+      const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(p.x, .52, p.z).setLinearDamping(2.5).setAngularDamping(4).enabledRotations(false, true, false).setCcdEnabled(true));
+      this.world.createCollider(RAPIER.ColliderDesc.cuboid(.37, .5, .37).setMass(1.8).setFriction(.35), body);
+      return { ...p, body };
+    });
+    this.log('Six rivals. One waiting customer. First coffee above 55% wins.', 'info');
   }
-  log(text, type = 'info', actorId = null) {
-    this.events.unshift({ id: `${this.round}-${++this.eventId}`, text, type, actorId, time: this.elapsed });
-    this.events = this.events.slice(0, 25);
+
+  createBox(o, bottom = 0) {
+    const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(o.x, bottom + o.h / 2, o.z));
+    this.world.createCollider(RAPIER.ColliderDesc.cuboid(o.w / 2, o.h / 2, o.d / 2).setFriction(.6), body);
+    return body;
   }
+  createCup() {
+    const index = this.cupSequence++;
+    const x = LEVEL.cupRack.x - .85 + index % 6 * .34;
+    const z = 4.45 + Math.floor(index % 12 / 6) * .38;
+    const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(x, 1.25, z).setCcdEnabled(true));
+    this.world.createCollider(RAPIER.ColliderDesc.cylinder(.17, .14).setMass(.24).setFriction(.65).setRestitution(.12), body);
+    const cup = { id: `cup-${this.round}-${index + 1}`, body, holderId: null, stationId: null, surfaceId: null, slosh: 0, nextSlosh: 0, coffee: 0, broken: false, rack: true, lastHolderId: null, releasedAt: -100, previousVelocity: 0 };
+    this.cups.push(cup);
+    return cup;
+  }
+  cupCollider(cup) {
+    return cup.body.numColliders() ? cup.body.collider(0) : this.world.createCollider(RAPIER.ColliderDesc.cylinder(.17, .14).setMass(.24).setFriction(.65).setRestitution(.12), cup.body);
+  }
+  log(text, type = 'info', actorId = null, position = null) {
+    this.events.unshift({ id: `${this.round}-${++this.eventId}`, text, type, actorId, time: this.elapsed, ...(position ? { x: position.x, z: position.z, dx: position.dx || 0, dz: position.dz || 0 } : {}) });
+    this.events.length = Math.min(32, this.events.length);
+  }
+  cupFor(agent) { return this.cups.find(c => c.id === agent.cupId); }
   setStrategy(id, strategy) {
-    const agent = this.agents.find(a => a.id === id);
-    if (!agent || !strategy) return;
-    agent.strategy = {
-      pace: strategy.pace === 'careful' ? 'careful' : 'fast',
-      route: strategy.route === 'detour' ? 'detour' : 'direct',
-      aggression: Number.isFinite(strategy.aggression) ? clamp(strategy.aggression, 0, 1) : agent.strategy.aggression,
-    };
+    const a = this.agents.find(agent => agent.id === id);
+    if (!a || a.controlled || !strategy) return;
+    a.strategy = { pace: strategy.pace === 'careful' ? 'careful' : 'fast', route: strategy.route === 'detour' ? 'detour' : 'direct', aggression: Number.isFinite(strategy.aggression) ? clamp(strategy.aggression, 0, 1) : a.strategy.aggression };
+    a.rethink = 0;
   }
-  route(agent, goal) { agent.path = pathTo(agent, goal); agent.goal = { ...goal }; }
-  headHome(agent) {
-    agent.wait = 0; agent.stage = 'delivery'; agent.routeLeg = agent.strategy.route === 'detour';
-    agent.state = 'Bringing it home';
-    this.route(agent, agent.routeLeg ? {x:1,z:5.4} : { x: agent.desk.targetX, z: agent.desk.targetZ });
+  setControl(id, enabled) {
+    const a = this.agents.find(agent => agent.id === id);
+    if (!a) return false;
+    if (a.controlled === !!enabled) return true;
+    a.controlled = !!enabled; a.input = { x: 0, z: 0, interact: false, drop: false, push: false };
+    a.pendingActions = {}; a.inputAge = Infinity; a.interaction = null; a.path = []; a.target = null; a.task = null; a.rethink = 0;
+    a.decision = enabled ? 'Direct player control' : 'Resuming autonomous decisions';
+    return true;
   }
-  spill(agent, amount, reason) {
-    if (!agent.carrying || agent.coffee <= 0) return;
-    const lost = clamp(Number.isFinite(amount) ? amount : 0, 0, agent.coffee);
-    agent.coffee -= lost;
-    if (lost > 5) this.spills.push({ id: `${this.round}-spill-${++this.eventId}`, x: agent.x, z: agent.z, radius: .45 + lost / 130, ttl: 36, born: this.elapsed });
-    if (reason && lost > 8) this.log(`${agent.name} ${reason}. ${Math.round(agent.coffee)}% coffee left.`, 'spill', agent.id);
+  stopInput(id) {
+    const a = this.agents.find(agent => agent.id === id);
+    if (!a) return false;
+    a.input = { x: 0, z: 0, interact: false, drop: false, push: false }; a.pendingActions = {}; a.inputAge = Infinity;
+    return true;
   }
-  fall(agent, dx, dz, reason) {
-    if (agent.fallen || agent.slipCooldown > 0) return;
-    agent.fallen = true; agent.fallTimer = 1.6 + this.rand() * .65; agent.slipCooldown = 5; agent.falls++;
-    agent.vx += dx * 2.4; agent.vz += dz * 2.4;
-    agent.state = 'A brief horizontal meeting';
-    agent.moving = false;
-    this.spill(agent, 18 + this.rand() * 35, reason);
-    if (!agent.carrying || agent.coffee === 0) this.log(`${agent.name} is having a floor moment.`, 'fall', agent.id);
+  setInput(id, input = {}) {
+    const a = this.agents.find(agent => agent.id === id);
+    if (!a?.controlled || !input || typeof input !== 'object') return false;
+    let x = Number.isFinite(input.x) ? clamp(input.x, -1, 1) : 0;
+    let z = Number.isFinite(input.z) ? clamp(input.z, -1, 1) : 0;
+    const length = Math.hypot(x, z); if (length > 1) { x /= length; z /= length; }
+    for (const key of ['interact', 'drop', 'push']) if (input[key] && !a.input[key]) a.pendingActions[key] = true;
+    a.input = { x, z, interact: !!input.interact, drop: !!input.drop, push: !!input.push }; a.inputAge = 0;
+    return true;
+  }
+  inReach(a, target, range = 1.05) {
+    const d = distance(a, target);
+    return d <= range && (d < .4 || (Math.sin(a.heading) * (target.x - a.x) + Math.cos(a.heading) * (target.z - a.z)) / d > -.15);
+  }
+  availableActions(a) {
+    if (a.fallen || a.interaction || a.pushTimer > 0) return [];
+    const result = [], cup = this.cupFor(a);
+    if (cup) {
+      if (cup.coffee >= 55 && this.inReach(a, LEVEL.customer.delivery, .85)) result.push({ type: 'deliver', label: 'Serve coffee', targetId: 'customer' });
+      for (const station of this.stations) if (!station.cupId && this.inReach(a, station)) result.push({ type: 'brew', label: cup.coffee ? 'Refill coffee' : 'Start brewing', targetId: station.id });
+      for (const surface of this.surfaces) if (!surface.cupId && this.inReach(a, surface)) result.push({ type: 'place', label: 'Place mug on worktop', targetId: surface.id });
+      result.push({ type: 'drop', label: 'Drop mug', targetId: cup.id });
+    } else {
+      const nearby = this.cups.filter(c => !c.holderId && !c.broken && !c.delivered && (c.rack || c.stationId || c.surfaceId || c.body.translation().y < .8) && this.inReach(a, this.cupTarget(c))).sort((c, d) => distance(a, this.cupTarget(c)) - distance(a, this.cupTarget(d)));
+      const targets = new Set();
+      for (const c of nearby) {
+        const group = c.rack ? 'rack' : c.stationId || c.surfaceId || c.id;
+        if (targets.has(group)) continue; targets.add(group);
+        result.push({ type: 'take', label: c.coffee > 0 ? `Take coffee (${Math.round(c.coffee)}%)` : 'Take mug', targetId: c.id });
+      }
+    }
+    if (a.cooldown <= 0) {
+      const rival = this.agents.filter(b => b !== a && !b.fallen && this.elapsed >= b.safeUntil && this.inReach(a, b, 1.12)).sort((b, c) => distance(a, b) - distance(a, c))[0];
+      if (rival) result.push({ type: 'push', label: `Shove ${rival.name}`, targetId: rival.id });
+    }
+    return result;
+  }
+  movementSpeed(a) {
+    const coffee = this.cupFor(a)?.coffee || 0;
+    return (coffee > 0 ? a.strategy.pace === 'careful' ? 1.85 : 2.65 : 2.7) * a.pace * a.variation * .85;
+  }
+  moveAgent(a, vx, vz, dt) {
+    if (Math.hypot(vx, vz) > .1) a.heading += Math.atan2(Math.sin(Math.atan2(vx, vz) - a.heading), Math.cos(Math.atan2(vx, vz) - a.heading)) * Math.min(1, dt * 12);
+    const smooth = 1 - Math.exp(-dt * 9);
+    a.vx += (vx - a.vx) * smooth; a.vz += (vz - a.vz) * smooth;
+    a.body.setLinvel({ x: a.vx, y: 0, z: a.vz }, true);
+    a.moving = Math.hypot(a.vx, a.vz) > .2;
+    a.action = a.interaction ? 'interact' : a.moving ? a.cupId ? 'carry' : 'run' : a.cupId ? 'carry' : 'idle';
+    if (a.moving && this.elapsed > a.safeUntil) {
+      const puddle = this.spills.find(s => this.elapsed - s.born > .7 && distance(a, s) < s.radius * .7);
+      a.slipExposure = puddle && puddle.radius > .42 && a.strategy.pace === 'fast' && Math.hypot(a.vx, a.vz) > 1.9 ? a.slipExposure + dt : 0;
+      if (a.slipExposure > .16) { a.slipExposure = 0; this.fall(a, Math.sin(a.heading), Math.cos(a.heading), 'slipped while rushing across spilled coffee'); }
+    }
+  }
+  manualControl(a, dt) {
+    if (a.inputAge > .35) { a.input = { x: 0, z: 0, interact: false, drop: false, push: false }; a.pendingActions = {}; }
+    const commands = a.pendingActions; a.pendingActions = {};
+    if (commands.drop) this.dropCup(a, Math.sin(a.heading) * .2, Math.cos(a.heading) * .2);
+    if (commands.push) {
+      const action = this.availableActions(a).find(action => action.type === 'push');
+      if (action) this.shove(a, this.agents.find(b => b.id === action.targetId));
+    }
+    if (commands.interact && a.pushTimer <= 0) {
+      const action = this.availableActions(a).find(action => !['drop', 'push'].includes(action.type));
+      if (action) this.startInteraction(a, action.type === 'place' ? 'surface' : action.type, action.targetId, action.type === 'take' ? .42 : action.type === 'place' ? .55 : .65);
+    }
+    a.decision = 'Direct player control'; a.state = a.interaction ? 'Contextual interaction' : a.cupId ? 'Carrying a mug' : 'Player movement';
+    if (a.pushTimer > 0) return;
+    const speed = this.movementSpeed(a);
+    this.moveAgent(a, a.interaction ? 0 : a.input.x * speed, a.interaction ? 0 : a.input.z * speed, dt);
+  }
+  blocked(point, margin = .39) {
+    const b = LEVEL.bounds;
+    return point.x < b.minX + margin || point.x > b.maxX - margin || point.z < b.minZ + margin || point.z > b.maxZ - margin || LEVEL.obstacles.some(o => inRectangle(point, o, margin)) || (this.gate.closed && inRectangle(point, this.gate, margin));
+  }
+  lineClear(from, to, detour = false) {
+    const steps = Math.max(1, Math.ceil(distance(from, to) / .12));
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps, p = { x: from.x + (to.x - from.x) * t, z: from.z + (to.z - from.z) * t };
+      if (this.blocked(p, .4)) return false;
+      if (this.props?.some(prop => distance(p, prop.body.translation()) < .74)) return false;
+    }
+    if (detour && (from.x - LEVEL.gate.x) * (to.x - LEVEL.gate.x) < 0) {
+      const t = (LEVEL.gate.x - from.x) / (to.x - from.x);
+      if (from.z + (to.z - from.z) * t < 4.4) return false;
+    }
+    return true;
+  }
+  smoothPath(from, points, detour) {
+    const result = []; let anchor = from, index = 0;
+    while (index < points.length) {
+      let furthest = index;
+      for (let i = points.length - 1; i > index; i--) {
+        if (this.lineClear(anchor, points[i], detour)) { furthest = i; break; }
+      }
+      result.push(points[furthest]); anchor = points[furthest]; index = furthest + 1;
+    }
+    return result;
+  }
+  pathTo(from, goal, detour = false) {
+    const cell = p => [clamp(Math.round((p.x - ORIGIN.x) / GRID), 0, WIDTH - 1), clamp(Math.round((p.z - ORIGIN.z) / GRID), 0, DEPTH - 1)];
+    const point = (x, z) => ({ x: ORIGIN.x + x * GRID, z: ORIGIN.z + z * GRID });
+    const key = (x, z) => z * WIDTH + x;
+    const start = cell(from), end = cell(goal), startKey = key(...start);
+    const open = [{ x: start[0], z: start[1], g: 0, f: 0 }];
+    const nodes = new Map([[startKey, { parent: null }]]); const closed = new Set();
+    let current;
+    while (open.length) {
+      open.sort((a, b) => b.f - a.f); current = open.pop();
+      const currentKey = key(current.x, current.z);
+      if (closed.has(currentKey)) continue;
+      closed.add(currentKey);
+      if (current.x === end[0] && current.z === end[1]) break;
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const x = current.x + dx, z = current.z + dz, k = key(x, z);
+        if (x < 0 || z < 0 || x >= WIDTH || z >= DEPTH || closed.has(k)) continue;
+        const p = point(x, z);
+        if (this.blocked(p)) continue;
+        const chairCost = this.props?.some(prop => distance(p, prop.body.translation()) < .9) ? 2 : 0;
+        const gateCost = detour && Math.abs(p.x - LEVEL.gate.x) < .8 && p.z < 4.4 ? 30 : 0;
+        const g = current.g + 1 + chairCost + gateCost;
+        if (nodes.has(k) && nodes.get(k).g <= g) continue;
+        nodes.set(k, { x, z, parent: currentKey, g });
+        open.push({ x, z, g, f: g + Math.abs(x - end[0]) + Math.abs(z - end[1]) });
+      }
+    }
+    if (!current || current.x !== end[0] || current.z !== end[1]) return [];
+    const points = []; let k = key(current.x, current.z);
+    while (nodes.get(k)?.parent != null) { const node = nodes.get(k); points.unshift(point(node.x, node.z)); k = node.parent; }
+    if (!this.blocked(goal, .33)) points.push({ x: goal.x, z: goal.z });
+    return this.smoothPath(from, points, detour);
+  }
+  assign(a, task, target, decision) {
+    const changed = a.task !== task || !a.target || distance(a.target, target) > .45;
+    a.task = task; a.target = { ...target }; a.decision = decision; a.state = decision;
+    if (changed || a.routeTimer <= 0) {
+      a.path = this.pathTo(a, target, a.strategy.route === 'detour' && Math.sign(a.x - .4) !== Math.sign(target.x - .4));
+      a.routeTimer = 1.1;
+    }
+  }
+  cupTarget(cup) {
+    return cup.rack ? LEVEL.cupRack : cup.stationId ? this.stations.find(s => s.id === cup.stationId) : cup.surfaceId ? this.surfaces.find(s => s.id === cup.surfaceId) : cup.body.translation();
+  }
+  takeCup(a, cup) {
+    if (!cup || cup.holderId || cup.broken || cup.delivered || a.cupId || a.fallen) return false;
+    const position = cup.body.translation();
+    const target = this.cupTarget(cup);
+    if (distance(a, target) > 1.05 || (!cup.rack && !cup.stationId && !cup.surfaceId && position.y > .8)) return false;
+    const previous = cup.lastHolderId;
+    if (cup.stationId) {
+      const station = this.stations.find(s => s.id === cup.stationId);
+      station.cupId = null; station.ownerId = null; station.busy = false; station.ready = false; station.progress = 0;
+    }
+    if (cup.surfaceId) this.surfaces.find(s => s.id === cup.surfaceId).cupId = null;
+    if (a.parkedCupId === cup.id) a.parkedCupId = null;
+    const theft = previous && previous !== a.id;
+    cup.rack = false; cup.stationId = null; cup.surfaceId = null; cup.holderId = a.id; cup.lastHolderId = a.id;
+    cup.body.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, true);
+    if (cup.body.numColliders()) this.world.removeCollider(cup.body.collider(0), true);
+    cup.body.setLinvel({ x: 0, y: 0, z: 0 }, true); cup.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+    a.cupId = cup.id; a.carrying = true; a.coffee = cup.coffee; a.rethink = 0;
+    if (theft) { a.steals++; this.log(`${a.name} took an unattended ${cup.coffee > 0 ? 'coffee' : 'mug'}.`, 'steal', a.id, a); }
+    else this.log(cup.coffee > 0 ? `${a.name} recovered a coffee.` : `${a.name} picked up a mug.`, cup.coffee > 0 ? 'recover' : 'take', a.id, a);
+    return true;
+  }
+  placeCup(a, station) {
+    const cup = this.cupFor(a);
+    if (!cup || !station || station.cupId || distance(a, station) > 1.05) return false;
+    cup.holderId = null; cup.stationId = station.id; cup.lastHolderId = a.id;
+    this.cupCollider(cup);
+    cup.body.setTranslation({ x: station.cupX, y: station.cupY + .17, z: station.cupZ }, true);
+    cup.body.setNextKinematicTranslation({ x: station.cupX, y: station.cupY + .17, z: station.cupZ });
+    station.cupId = cup.id; station.ownerId = a.id; station.progress = cup.coffee / 100; station.busy = true; station.ready = false;
+    a.cupId = null; a.carrying = false; a.coffee = 0; a.stationsUsed++; a.rethink = 0;
+    this.log(`${a.name} started a coffee. The machine keeps brewing unattended.`, 'brew', a.id, station);
+    return true;
+  }
+  placeOnSurface(a, surface) {
+    const cup = this.cupFor(a);
+    if (!cup || !surface || surface.cupId || distance(a, surface) > 1.05) return false;
+    cup.holderId = null; cup.stationId = null; cup.surfaceId = surface.id; cup.lastHolderId = a.id;
+    this.cupCollider(cup);
+    const p = { x: surface.cupX, y: surface.cupY + .17, z: surface.cupZ };
+    cup.body.setTranslation(p, true); cup.body.setNextKinematicTranslation(p);
+    cup.body.setRotation({ x: 0, y: 0, z: 0, w: 1 }, true); cup.body.setNextKinematicRotation({ x: 0, y: 0, z: 0, w: 1 });
+    surface.cupId = cup.id; a.parkedCupId = cup.id;
+    a.cupId = null; a.carrying = false; a.coffee = 0; a.rethink = 0;
+    this.log(`${a.name} placed a mug on the shared worktop.`, 'place', a.id, surface);
+    return true;
+  }
+  carryRisk(a, dt) {
+    const velocity = a.body.linvel(), previous = a.previousVelocity;
+    a.previousVelocity = { x: velocity.x, z: velocity.z };
+    const cup = this.cupFor(a);
+    if (!cup || cup.coffee <= 0 || a.fallen) return;
+    if (this.elapsed < cup.nextSlosh) { cup.slosh *= Math.exp(-dt * 4); return; }
+    const dx = velocity.x - previous.x, dz = velocity.z - previous.z;
+    const speed = Math.max(Math.hypot(velocity.x, velocity.z), Math.hypot(previous.x, previous.z));
+    const acceleration = Math.hypot(dx, dz) / dt;
+    const lateral = Math.abs(velocity.x * previous.z - velocity.z * previous.x) / Math.max(.1, speed) / dt;
+    const careful = a.strategy.pace === 'careful';
+    const stress = Math.max(0, acceleration - (careful ? 15 : 7.4)) + Math.max(0, lateral - (careful ? 12 : 5)) * .5;
+    cup.slosh = clamp(cup.slosh - dt * 2 + stress * dt * (careful ? .3 : .8), 0, 3);
+    if (speed < .8 || cup.slosh < .7 || this.elapsed < cup.nextSlosh) return;
+    const length = Math.max(.001, Math.hypot(dx, dz)), dirX = -dx / length, dirZ = -dz / length;
+    const lost = clamp(2 + cup.slosh * 2, 2, 7);
+    this.spill(cup, lost, { x: a.x + dirX * .55, z: a.z + dirZ * .55, dx: dirX, dz: dirZ }, `${a.name} sloshed coffee while turning or braking. ${Math.round(Math.max(0, cup.coffee - lost))}% remains.`);
+    cup.slosh = 0; cup.nextSlosh = this.elapsed + 1.2;
+  }
+  spill(cup, amount, position, reason = '') {
+    const lost = Math.min(cup.coffee, Math.max(0, amount)); cup.coffee -= lost;
+    if (lost < 2) return;
+    this.spills.push({ id: `${this.round}-spill-${++this.eventId}`, x: position.x, z: position.z, dx: position.dx || 0, dz: position.dz || 0, radius: .32 + lost / 100, ttl: 34, born: this.elapsed });
+    if (reason) this.log(reason, 'spill', cup.lastHolderId, position);
+  }
+  heldPosition(a) {
+    return { x: a.x + Math.sin(a.heading) * .28 + Math.cos(a.heading) * .178, y: .857, z: a.z + Math.cos(a.heading) * .28 - Math.sin(a.heading) * .178 };
+  }
+  dropCup(a, dx = 0, dz = 0) {
+    const cup = this.cupFor(a); if (!cup) return null;
+    cup.holderId = null; cup.stationId = null; cup.surfaceId = null; cup.releasedAt = this.elapsed;
+    cup.body.setBodyType(RAPIER.RigidBodyType.Dynamic, true);
+    this.cupCollider(cup);
+    cup.body.setTranslation(this.heldPosition(a), true);
+    const ownerBit = 1 << (RUNNERS.findIndex(r => r.id === a.id) + 1);
+    cup.body.collider(0).setCollisionGroups((1 << 16) | (0xffff & ~ownerBit));
+    cup.ownerCollisionAfter = this.elapsed + .25;
+    cup.body.setLinvel({ x: a.vx + dx * 2.2, y: 1.2, z: a.vz + dz * 2.2 }, true);
+    cup.body.setAngvel({ x: dz * 2, y: 1.2, z: -dx * 2 }, true);
+    cup.previousVelocity = 0;
+    a.cupId = null; a.carrying = false; a.coffee = 0; a.rethink = 0;
+    this.spill(cup, 8 + Math.hypot(a.vx, a.vz) * 4, a);
+    this.log(`${a.name} dropped a mug.`, 'drop', a.id, a);
+    return cup;
+  }
+  fall(a, dx, dz, reason = 'lost their balance') {
+    if (a.fallen || this.elapsed < a.safeUntil) return false;
+    a.fallen = true; a.recovery = 1.75; a.safeUntil = this.elapsed + 5;
+    a.falls++; a.interaction = null; a.action = 'fall'; a.moving = false;
+    a.body.collider(0).setShape(new RAPIER.Ball(RADIUS));
+    a.body.collider(0).setTranslation({ x: 0, y: -.42, z: 0 });
+    a.body.collider(0).setRotation({ x: Math.cos(a.heading) * Math.SQRT1_2, y: 0, z: -Math.sin(a.heading) * Math.SQRT1_2, w: Math.SQRT1_2 });
+    this.dropCup(a, dx, dz);
+    a.body.applyImpulse({ x: dx * 5.5, y: 0, z: dz * 5.5 }, true);
+    this.log(`${a.name} ${reason}.`, 'fall', a.id, a); return true;
+  }
+  choose(a) {
+    const cup = this.cupFor(a);
+    if (cup) {
+      if (cup.coffee >= 55) {
+        this.assign(a, 'deliver', LEVEL.customer.delivery, this.gate.closed ? 'Taking the open route to the customer' : a.strategy.pace === 'careful' ? 'Carrying steadily to the customer' : 'Racing to the customer');
+        return;
+      }
+      const opportunity = this.cups.filter(c => !c.holderId && !c.broken && c.coffee >= 55 && (c.stationId ? this.stations.find(s => s.id === c.stationId).ready : !c.rack && (c.surfaceId || c.body.translation().y < .7))).sort((c, d) => distance(a, this.cupTarget(c)) - distance(a, this.cupTarget(d)))[0];
+      const opportunityPosition = opportunity && (this.cupTarget(opportunity));
+      if (opportunity && a.strategy.aggression > .55 && distance(a, opportunityPosition) < 4) {
+        const surface = this.surfaces.find(s => !s.cupId && distance(a, s) < 2.5);
+        if (surface) { this.assign(a, `surface:${surface.id}`, surface, 'Parking a spare mug before taking a ready coffee'); return; }
+        this.dropCup(a, -.3, .3);
+        this.assign(a, `take:${opportunity.id}`, opportunityPosition, 'Dropping an empty mug to seize a prepared coffee');
+        return;
+      }
+      const free = this.stations.filter(s => !s.cupId).sort((s, t) => distance(a, s) - distance(a, t))[0];
+      if (free) this.assign(a, `brew:${free.id}`, free, cup.coffee > 0 ? 'Refilling a spilled coffee' : 'Preparing the shared machine');
+      else if (a.strategy.aggression > .5 && this.stations.every(s => s.progress < .8) && this.surfaces.some(s => !s.cupId)) {
+        const surface = this.surfaces.filter(s => !s.cupId).sort((s, t) => distance(a, s) - distance(a, t))[0];
+        this.assign(a, `surface:${surface.id}`, surface, 'Staging a spare mug while both machines brew');
+      }
+      else this.assign(a, 'wait-machine', { x: -6.5 + (RUNNERS.findIndex(r => r.id === a.id) % 3) * .75, z: -2.8 }, 'Waiting for a free machine');
+      return;
+    }
+    const available = this.cups.filter(c => !c.holderId && !c.broken && !c.rack && (c.stationId ? this.stations.find(s => s.id === c.stationId).ready : c.coffee >= 55 && (c.surfaceId || this.elapsed - c.releasedAt > .55 && c.body.translation().y < .7)));
+    available.sort((c, d) => {
+      const score = c => c.coffee * .12 - distance(a, this.cupTarget(c)) + (c.lastHolderId === a.id ? 1.5 : a.strategy.aggression * 3);
+      return score(d) - score(c);
+    });
+    if (available[0]) {
+      const best = available[0], location = this.cupTarget(best);
+      this.assign(a, `take:${best.id}`, location, best.lastHolderId === a.id ? 'Recovering the prepared coffee' : 'Taking an unattended opportunity'); return;
+    }
+    const brewing = this.stations.find(s => s.ownerId === a.id && s.cupId);
+    if (brewing) {
+      const rivals = this.agents.filter(other => other !== a && other.carrying && other.coffee >= 55 && distance(a, other) < 4);
+      if (rivals[0] && a.strategy.aggression > .6) {
+        this.assign(a, `contest:${rivals[0].id}`, rivals[0], 'Leaving the brew to contest the leader');
+      } else {
+        const index = RUNNERS.findIndex(r => r.id === a.id);
+        const guard = a.strategy.aggression < .3;
+        const target = guard ? { x: brewing.x + (index % 2 ? .62 : -.62), z: -3.65 } : { x: -3.2 + (index % 2) * .7, z: -2.2 - (index % 3) * .65 };
+        this.assign(a, 'guard', target, guard ? 'Protecting the brewing coffee' : 'Leaving a coffee brewing unattended');
+      }
+      return;
+    }
+    const parked = this.cups.find(c => c.id === a.parkedCupId && c.surfaceId && !c.holderId && !c.broken);
+    if (parked) {
+      if (this.stations.some(s => !s.cupId)) this.assign(a, `take:${parked.id}`, this.cupTarget(parked), 'Retrieving the staged mug for a free machine');
+      else {
+        const rival = this.agents.find(b => b !== a && b.coffee >= 55 && distance(a, b) < 4);
+        if (rival && a.strategy.aggression > .6) this.assign(a, `contest:${rival.id}`, rival, 'Contesting the leader while a spare mug waits');
+        else this.assign(a, 'guard', { x: -3.1, z: -2.1 }, 'Watching the machines while a spare mug waits on the island');
+      }
+      return;
+    }
+    const recoverable = this.cups.filter(c => !c.holderId && !c.stationId && !c.rack && !c.broken && (c.surfaceId || c.body.translation().y < .7 && this.elapsed - c.releasedAt > 1)).sort((c, d) => distance(a, this.cupTarget(c)) - distance(a, this.cupTarget(d)));
+    if (recoverable[0] && distance(a, this.cupTarget(recoverable[0])) < 4) {
+      const c = recoverable[0]; this.assign(a, `take:${c.id}`, this.cupTarget(c), c.surfaceId ? 'Reusing a mug from the shared worktop' : 'Recovering a fallen mug'); return;
+    }
+    if (!this.cups.some(c => c.rack && !c.broken)) this.createCup();
+    this.assign(a, 'rack', { x: LEVEL.cupRack.x + (RUNNERS.findIndex(r => r.id === a.id) % 3 - 1) * .5, z: LEVEL.cupRack.z }, 'Fetching a fresh mug');
+  }
+  startInteraction(a, type, id, duration) {
+    a.interaction = { type, id, remaining: duration, duration }; a.action = 'interact'; a.moving = false;
+    const station = type === 'brew' ? this.stations.find(s => s.id === id) : type === 'surface' ? this.surfaces.find(s => s.id === id) : null;
+    const cup = type === 'take' ? this.cups.find(c => c.id === id) : null;
+    const focus = station ? { x: station.cupX, z: station.cupZ } : cup ? cup.body.translation() : LEVEL.customer.desk;
+    if (focus) a.heading = Math.atan2(focus.x - a.x, focus.z - a.z);
+  }
+  completeInteraction(a) {
+    const interaction = a.interaction; a.interaction = null;
+    if (!interaction || this.finished) return;
+    if (interaction.type === 'take') this.takeCup(a, this.cups.find(c => c.id === interaction.id));
+    else if (interaction.type === 'surface') this.placeOnSurface(a, this.surfaces.find(s => s.id === interaction.id));
+    else if (interaction.type === 'brew') this.placeCup(a, this.stations.find(s => s.id === interaction.id));
+    else if (interaction.type === 'deliver') {
+      const cup = this.cupFor(a);
+      if (cup && !cup.broken && cup.coffee >= 55 && distance(a, LEVEL.customer.delivery) < .85) {
+        cup.holderId = null; cup.delivered = true; this.cupCollider(cup);
+        cup.body.setTranslation({ x: LEVEL.customer.desk.x, y: LEVEL.customer.desk.h + .17, z: -.65 }, true);
+        cup.body.setNextKinematicTranslation({ x: LEVEL.customer.desk.x, y: LEVEL.customer.desk.h + .17, z: -.65 });
+        cup.body.setRotation({ x: 0, y: 0, z: 0, w: 1 }, true);
+        cup.body.setNextKinematicRotation({ x: 0, y: 0, z: 0, w: 1 });
+        a.cupId = null; a.carrying = false;
+        a.delivered = true; a.progress = 1; a.coffee = cup.coffee; a.state = 'Coffee served!'; a.action = 'interact'; a.moving = false;
+        this.winner = a.id; this.finished = true;
+        this.log(`${a.name} served ${Math.round(cup.coffee)}% coffee to the waiting customer!`, 'win', a.id, LEVEL.customer.delivery);
+      }
+    }
+    a.rethink = 0;
+  }
+  control(a, dt) {
+    a.cooldown -= dt; a.rethink -= dt; a.routeTimer -= dt; a.inputAge += dt;
+    const p = a.body.translation(); a.x = p.x; a.z = p.z;
+    if (a.fallen) {
+      a.pendingActions = {};
+      a.recovery -= dt; a.action = a.recovery < .65 ? 'recover' : 'fall';
+      a.body.setLinvel({ x: a.body.linvel().x * .92, y: 0, z: a.body.linvel().z * .92 }, true);
+      if (a.recovery <= 0) { a.body.collider(0).setShape(new RAPIER.Capsule(.44, RADIUS)); a.body.collider(0).setTranslation({ x: 0, y: 0, z: 0 }); a.body.collider(0).setRotation({ x: 0, y: 0, z: 0, w: 1 }); a.fallen = false; a.rethink = 0; a.path = []; this.log(`${a.name} is back on their feet.`, 'recover', a.id, a); }
+      return;
+    }
+    if (a.pushTimer > 0) {
+      a.pendingActions = {};
+      a.pushTimer -= dt; a.action = 'push'; a.moving = false;
+      a.vx *= .72; a.vz *= .72;
+      a.body.setLinvel({ x: a.vx, y: 0, z: a.vz }, true);
+      return;
+    }
+    if (a.interaction) {
+      a.pendingActions = {};
+      a.action = 'interact'; a.moving = false; a.vx *= .7; a.vz *= .7;
+      a.body.setLinvel({ x: a.vx, y: 0, z: a.vz }, true);
+      a.interaction.remaining -= dt;
+      if (a.interaction.remaining <= 0) this.completeInteraction(a);
+      return;
+    }
+    if (a.controlled) { this.manualControl(a, dt); return; }
+    if (a.rethink <= 0) { this.choose(a); a.rethink = .4 + this.rand() * .25; }
+    const reach = a.task?.startsWith('take:') ? .78 : a.task === 'rack' ? .72 : .64;
+    if (a.target && distance(a, a.target) < reach) {
+      a.moving = false; a.path = [];
+      if (a.task === 'rack') {
+        const cup = this.cups.find(c => c.rack && !c.holderId && !c.broken);
+        if (cup) this.startInteraction(a, 'take', cup.id, .42);
+      } else if (a.task?.startsWith('take:')) this.startInteraction(a, 'take', a.task.slice(5), .42);
+      else if (a.task?.startsWith('brew:')) this.startInteraction(a, 'brew', a.task.slice(5), .65);
+      else if (a.task?.startsWith('surface:')) this.startInteraction(a, 'surface', a.task.slice(8), .55);
+      else if (a.task === 'deliver') this.startInteraction(a, 'deliver', null, .65);
+    }
+    while (a.path.length && distance(a, a.path[0]) < .16) a.path.shift();
+    if (a.path.length > 1 && this.lineClear(a, a.path[1], a.strategy.route === 'detour')) a.path.shift();
+    let vx = 0, vz = 0;
+    if (a.path[0] && !a.interaction) {
+      const target = a.path[0], d = distance(a, target);
+      const speed = this.movementSpeed(a);
+      vx = (target.x - a.x) / d * speed; vz = (target.z - a.z) / d * speed;
+      // Side-stepping uses physical neighbors; deterministic priority keeps queues moving.
+      for (const other of this.agents) {
+        if (other === a || other.fallen) continue;
+        const gap = distance(a, other);
+        if (gap < 1.05 && gap > .01) {
+          const pressure = (1.05 - gap) * 1.4;
+          vx += (a.x - other.x) / gap * pressure; vz += (a.z - other.z) / gap * pressure;
+          if (a.id > other.id && gap < .8) { vx += -(other.z - a.z) / gap * .5; vz += (other.x - a.x) / gap * .5; }
+        }
+      }
+    }
+    this.moveAgent(a, vx, vz, dt);
+    if (a.moving && distance(a, a.lastPosition) < .018) a.stuckTime += dt; else a.stuckTime = Math.max(0, a.stuckTime - dt * 2);
+    a.lastPosition = { x: a.x, z: a.z };
+    if (a.stuckTime > 1) {
+      a.routeTimer = 0; a.rethink = 0; a.path = [];
+      const side = RUNNERS.findIndex(r => r.id === a.id) % 2 ? 1 : -1;
+      a.body.applyImpulse({ x: Math.cos(a.heading) * side * 2, y: 0, z: -Math.sin(a.heading) * side * 2 }, true);
+      a.stuckTime = .3;
+    }
+  }
+  breakCup(cup, position, message) {
+    cup.broken = true; this.spill(cup, cup.coffee, position);
+    const rotation = cup.body.rotation();
+    cup.body.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, true);
+    cup.body.setLinvel({ x: 0, y: 0, z: 0 }, true); cup.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+    cup.body.setNextKinematicTranslation(position); cup.body.setNextKinematicRotation(rotation);
+    if (cup.body.numColliders()) this.world.removeCollider(cup.body.collider(0), true);
+    this.log(message, 'break', cup.lastHolderId, position);
+  }
+  updateCups(dt) {
+    for (const cup of this.cups) {
+      if (cup.broken) continue;
+      if (cup.holderId) {
+        const a = this.agents.find(a => a.id === cup.holderId);
+        cup.body.setNextKinematicTranslation(this.heldPosition(a));
+        cup.body.setNextKinematicRotation({ x: 0, y: Math.sin(a.heading / 2), z: 0, w: Math.cos(a.heading / 2) });
+        a.coffee = cup.coffee;
+      } else if (!cup.rack && !cup.stationId && !cup.surfaceId && !cup.delivered) {
+        if (cup.ownerCollisionAfter && this.elapsed >= cup.ownerCollisionAfter) { cup.body.collider(0).setCollisionGroups(0xffffffff); cup.ownerCollisionAfter = 0; }
+        const p = cup.body.translation(), velocity = cup.body.linvel();
+        const speed = Math.hypot(velocity.x, velocity.y, velocity.z);
+        if (p.y < .4 && cup.previousVelocity > 3.1 && this.elapsed - cup.releasedAt > .16 && this.elapsed - (cup.lastImpact || -100) > .4) {
+          cup.lastImpact = this.elapsed;
+          this.spill(cup, 10 + cup.previousVelocity * 3, p, 'A dropped mug spilled on impact.');
+          if (cup.previousVelocity > 6.8 || (cup.previousVelocity > 4.4 && this.rand() < .22)) {
+            this.breakCup(cup, p, 'A mug broke. Its owner needs another cup.');
+          }
+        }
+        cup.previousVelocity = speed;
+        if (!cup.broken && p.y < -2) this.breakCup(cup, p, 'A lost mug must be replaced.');
+      }
+    }
+    for (const station of this.stations) {
+      if (!station.busy || !station.cupId) continue;
+      const cup = this.cups.find(c => c.id === station.cupId);
+      cup.coffee = Math.min(100, cup.coffee + dt * 100 / station.duration);
+      station.progress = cup.coffee / 100;
+      if (cup.coffee >= 100) {
+        station.busy = false; station.ready = true;
+        this.log('Coffee ready. Anyone can take the unattended mug.', 'ready', station.ownerId, station);
+        for (const a of this.agents) a.rethink = 0;
+      }
+    }
+  }
+  shove(a, victim) {
+    if (!victim || a === victim || a.fallen || victim.fallen || a.cooldown > 0 || this.elapsed < victim.safeUntil || distance(a, victim) > 1.12) return false;
+    const d = Math.max(.05, distance(a, victim)), dx = (victim.x - a.x) / d, dz = (victim.z - a.z) / d;
+    if (!this.fall(victim, dx, dz, `was pushed by ${a.name}`)) return false;
+    a.cooldown = 4 + this.rand() * 3; a.action = 'push'; a.pushTimer = .48; a.heading = Math.atan2(dx, dz); a.moving = false;
+    this.log(`${a.name} shoved ${victim.name}; the mug must drop before it can be taken.`, 'push', a.id, a);
+    return true;
+  }
+  contest() {
+    for (const a of this.agents) {
+      if (a.controlled || a.fallen || a.interaction || a.cooldown > 0) continue;
+      const victim = this.agents.find(b => b !== a && !b.fallen && b.carrying && b.coffee >= 55 && distance(a, b) < 1.08);
+      if (!victim || a.coffee >= 55 || this.rand() > a.strategy.aggression * .028) continue;
+      this.shove(a, victim);
+    }
+  }
+  fixedStep(dt) {
+    this.elapsed += dt;
+    const closed = (this.elapsed + 8) % LEVEL.gate.period >= LEVEL.gate.period - LEVEL.gate.closedFor;
+    if (closed !== this.gate.closed) {
+      this.gate.closed = closed;
+      this.log(closed ? 'The middle passage is closing. North and south service aisles stay open.' : 'The middle passage is open again.', 'gate', null, this.gate);
+      for (const a of this.agents) { a.rethink = 0; a.routeTimer = 0; }
+    }
+    this.gate.nextChange = closed ? LEVEL.gate.period - ((this.elapsed + 8) % LEVEL.gate.period) : LEVEL.gate.period - LEVEL.gate.closedFor - ((this.elapsed + 8) % LEVEL.gate.period);
+    this.gateBody.setNextKinematicTranslation({ x: this.gate.x, y: closed ? .65 : -2, z: this.gate.z });
+    for (const a of this.agents) { this.control(a, dt); if (this.finished) return; }
+    this.updateCups(dt);
+    this.world.timestep = dt; this.world.step();
+    for (const a of this.agents) {
+      const p = a.body.translation(); a.x = p.x; a.z = p.z;
+      this.carryRisk(a, dt);
+      const c = this.cupFor(a); if (!a.delivered) a.coffee = c?.coffee || 0; a.carrying = !!c;
+      if (!a.delivered) {
+        const station = this.stations.find(s => s.ownerId === a.id && s.cupId);
+        a.progress = c?.coffee >= 55 ? .63 + clamp(1 - distance(a, LEVEL.customer.delivery) / 18, 0, 1) * .35 : station ? .34 + station.progress * .25 : c ? .2 + clamp(1 - Math.min(...this.stations.map(s => distance(a, s))) / 12, 0, 1) * .12 : .06;
+      }
+    }
+    this.contest();
+    this.spills = this.spills.filter(s => (s.ttl -= dt) > 0).slice(-32);
   }
   step(dt) {
-    if (this.finished) return;
-    if (!Number.isFinite(dt) || dt <= 0) return;
-    dt = clamp(dt, 0, .1); this.elapsed += dt;
-    this.spills = this.spills.filter(s => (s.ttl -= dt) > 0).slice(-32);
-    for (const a of this.agents) {
-      a.cooldown -= dt; a.slipCooldown -= dt;
-      if (a.fallen) {
-        a.fallTimer -= dt;
-        if (a.fallTimer <= 0) {
-          a.fallen = false;
-          a.state = a.stage === 'delivery' ? 'Back on the clock' : 'Pretending that never happened';
-          this.route(a, a.goal);
-        }
-      }
-      if (a.wait > 0 && distance(a, a.goal) > 1.5) {
-        a.wait = 0;
-        this.route(a, a.goal);
-      }
-      if (a.wait > 0 && !a.fallen) {
-        a.wait -= dt; a.moving = false;
-        if (a.wait <= 0) {
-          if (a.stage === 'cup') { a.carrying = true; a.stage = 'machine'; a.state = 'To the coffee machine'; this.route(a, MAP.machine); }
-          else if (a.stage === 'machine') {
-            a.coffee = 100; this.headHome(a); this.log(`${a.name} has a full cup. Confidence: unreasonable.`, 'coffee', a.id);
-          }
-        }
-      } else if (!a.fallen) {
-        if (a.stage === 'delivery' && a.coffee < 55) {
-          a.stage = 'machine'; a.state = 'Emergency refill'; this.route(a, MAP.machine);
-          this.log(`${a.name} is going back for a refill. Again.`, 'refill', a.id);
-        }
-        const target = a.path[0];
-        if (target) {
-          const dx = target.x - a.x, dz = target.z - a.z, d = Math.hypot(dx,dz);
-          const stationArrival = a.stage !== 'delivery' && distance(a, a.goal) < .7;
-          if (stationArrival) { a.path = []; a.moving = false; }
-          else if (d < .19) a.path.shift();
-          else {
-            const speed = a.speed * (a.strategy.pace === 'careful' && a.coffee > 0 ? 1.15 : 1.45);
-            a.vx += (dx / d * speed - a.vx) * Math.min(1, dt * 8);
-            a.vz += (dz / d * speed - a.vz) * Math.min(1, dt * 8);
-            a.heading = Math.atan2(dx,dz); a.moving = true;
-          }
-        } else if (distance(a, a.goal) > (a.stage === 'delivery' ? .3 : .8)) {
-          a.moving = false;
-          this.route(a, a.goal);
-        } else {
-          a.moving = false;
-          if (a.stage === 'cup') { a.wait = .65; a.state = 'Acquiring a cup'; }
-          else if (a.stage === 'machine') {
-            const busy = this.agents.some(b => b !== a && b.stage === 'machine' && b.wait > 0);
-            if (!busy) { a.wait = 2.6; a.state = 'Brewing something important'; }
-            else { a.state = 'Patiently losing patience'; if (a.cooldown < 0 && this.rand() < dt * .2) this.log(`${a.name} would like to speak to the coffee machine.`, 'info', a.id); }
-          } else if (a.stage === 'delivery' && a.routeLeg) {
-            a.routeLeg = false; this.route(a,{ x:a.desk.targetX,z:a.desk.targetZ });
-          } else if (a.stage === 'delivery' && a.coffee >= 55) {
-            a.delivered = true; a.progress = 1; a.state = 'Employee of the minute'; this.winner = a.id; this.finished = true;
-            this.log(`${a.name} delivered ${Math.round(a.coffee)}% of a coffee. It counts!`, 'win', a.id);
-            return;
-          }
-        }
-      }
-      if (!a.moving || a.fallen) { a.vx *= Math.exp(-dt * 3); a.vz *= Math.exp(-dt * 3); }
-      this.move(a,dt);
-      if (!a.fallen && a.slipCooldown <= 0 && a.moving) {
-        const puddle = this.spills.find(s => distance(a,s) < s.radius * .8 && this.elapsed - s.born > .7);
-        if (puddle && this.rand() < dt * (a.strategy.pace === 'careful' ? .12 : .9)) this.fall(a, Math.sin(a.heading), Math.cos(a.heading), 'slipped on someone else’s problem');
-      }
-      if (!a.delivered) a.progress = a.stage === 'cup' ? .08 + Math.max(0,1-distance(a,MAP.cups)/20)*.18 : a.stage === 'machine' ? .3 + Math.max(0,1-distance(a,MAP.machine)/12)*.18 : .55 + Math.max(0,1-distance(a,{x:a.desk.targetX,z:a.desk.targetZ})/20)*.44;
-    }
-    for(let i=0;i<this.agents.length;i++) for(let j=i+1;j<this.agents.length;j++) this.collide(this.agents[i],this.agents[j],dt);
-    for (const prop of this.props) {
-      prop.vx *= Math.exp(-dt * 1.8); prop.vz *= Math.exp(-dt * 1.8); this.move(prop,dt,.38);
-      for(const a of this.agents) {
-        const d = distance(a,prop);
-        if(d < .68 && d > .01) {
-          const dx=(prop.x-a.x)/d,dz=(prop.z-a.z)/d;
-          prop.vx+=dx*dt*12; prop.vz+=dz*dt*12;
-          if(Math.hypot(prop.vx,prop.vz)>1.7 && !a.fallen) this.fall(a,-dx,-dz,'was outplayed by an office chair');
-          a.vx -= dx * dt * 4; a.vz -= dz * dt * 4;
-        }
-      }
-    }
-  }
-  move(body,dt,radius=.29) {
-    const steps = Math.max(1, Math.ceil(Math.hypot(body.vx, body.vz) * dt / .2));
-    for (let i = 0; i < steps; i++) {
-      const nx=clamp(body.x+body.vx*dt/steps,-10.5,10.5),nz=clamp(body.z+body.vz*dt/steps,-6.5,6.5);
-      if(!inside(nx,body.z,radius)) body.x=nx; else body.vx*=-.22;
-      if(!inside(body.x,nz,radius)) body.z=nz; else body.vz*=-.22;
-    }
-  }
-  collide(a,b,dt) {
-    const d=distance(a,b); if(d<.01 || d>1.12) return;
-    const dx=(b.x-a.x)/d,dz=(b.z-a.z)/d;
-    if(d<.62) {
-      const pressure=(.62-d)*dt*35;
-      a.vx-=dx*pressure; a.vz-=dz*pressure; b.vx+=dx*pressure; b.vz+=dz*pressure;
-    }
-    const attacker = a.cooldown < b.cooldown ? a : b, victim = attacker===a?b:a;
-    if(attacker.cooldown>0 || attacker.fallen || victim.fallen || this.rand()>dt*attacker.strategy.aggression*.9) return;
-    attacker.cooldown=4+this.rand()*3;
-    const sign=attacker===a?1:-1;
-    if(victim.coffee>=55 && attacker.coffee<55 && attacker.carrying) {
-      attacker.coffee=victim.coffee; victim.coffee=0; attacker.steals++; this.headHome(attacker);
-      this.log(`${attacker.name} stole ${victim.name}’s coffee. Teamwork!`, 'steal', attacker.id);
-    }
-    this.fall(victim,dx*sign,dz*sign,`was gently reorganized by ${attacker.name}`);
-    if(!victim.carrying) this.log(`${attacker.name} scheduled a collision with ${victim.name}.`, 'push', attacker.id);
+    if (this.finished || this.disposed || !Number.isFinite(dt) || dt <= 0) return;
+    this.accumulator += Math.min(dt, .25);
+    while (this.accumulator + 1e-9 >= STEP && !this.finished) { this.fixedStep(STEP); this.accumulator -= STEP; }
   }
   finish() {
-    if(this.finished) return this.winner;
-    this.winner=null; this.finished=true; this.timedOut=true;
-    this.log('Time! No coffee delivered. All bets are refunded.', 'draw');
-    return this.winner;
+    if (this.finished) return this.winner;
+    this.finished = true; this.winner = null; this.timedOut = true;
+    this.log('Time! No valid delivery. All bets are refunded.', 'draw'); return null;
   }
   snapshot() {
-    return { elapsed:this.elapsed,winner:this.winner,finished:this.finished,timedOut:!!this.timedOut,
-      agents:this.agents.map(({path,desk,strategy,goal,wait,...agent})=>({...agent,home:{...agent.home},pace:strategy.pace,route:strategy.route})),
-      spills:this.spills.map(s=>({...s})),events:[...this.events],props:this.props.map(p=>({...p})) };
+    return { elapsed: this.elapsed, winner: this.winner, finished: this.finished, timedOut: !!this.timedOut,
+      agents: this.agents.map(a => ({ id: a.id, name: a.name, color: a.color, trait: a.trait, x: a.x, y: a.y, z: a.z, vx: a.body.linvel().x, vz: a.body.linvel().z, heading: a.heading, coffee: a.coffee, carrying: a.carrying, cupId: a.cupId, state: a.state, action: a.action, moving: a.moving, fallen: a.fallen, recovery: a.recovery, pushRemaining: a.pushTimer, progress: a.progress, decision: a.decision, controlled: a.controlled, availableActions: this.availableActions(a), contextualAction: this.availableActions(a).find(action => !['drop', 'push'].includes(action.type)) || null, pace: a.strategy.pace, route: a.strategy.route, delivered: a.delivered, interaction: a.interaction ? { ...a.interaction } : null, falls: a.falls, steals: a.steals })),
+      cups: this.cups.map(c => {
+        const p = c.body.translation(), q = c.body.rotation();
+        const offset = { x: .34 * (q.x * q.y - q.w * q.z), y: .17 * (1 - 2 * (q.x * q.x + q.z * q.z)), z: .34 * (q.y * q.z + q.w * q.x) };
+        return { id: c.id, holderId: c.holderId, x: p.x - offset.x, y: p.y - offset.y, z: p.z - offset.z, rotation: { ...q }, coffee: c.coffee, broken: c.broken, stationId: c.stationId, surfaceId: c.surfaceId, slosh: Math.min(1, c.slosh), rack: c.rack, delivered: !!c.delivered };
+      }),
+      stations: this.stations.map(s => ({ ...s })), surfaces: this.surfaces.map(s => ({ ...s })), gate: { ...this.gate },
+      props: this.props.map(p => ({ id: p.id, ...p.body.translation(), rotation: { ...p.body.rotation() } })),
+      spills: this.spills.map(s => ({ ...s })), events: this.events.map(e => ({ ...e })),
+    };
+  }
+  dispose() {
+    if (this.disposed) return;
+    this.disposed = true; this.world.free();
   }
 }
