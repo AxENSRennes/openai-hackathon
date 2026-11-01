@@ -37,6 +37,8 @@ The legacy simulation, procedural renderer, separate delivery desks, and website
 
 Blender's glTF exporter requires NumPy. On Debian installations without that Python module, install it in Blender's Python environment or the user's Python site packages. The script reads arena geometry from `shared/level.js` and exports meshes without scene cameras or lights.
 
+The production build extracts byte-identical embedded textures into shared files and precompresses the GLBs with Brotli and gzip. Original authored assets stay unchanged. Brotli reduces the initial 3D payload from 14.07 MB to 3.40 MB, including shared textures. The server negotiates the supported encoding, and content-addressed textures can be cached across visits. The loading screen shows progress and offers a reload when downloads fail or stop responding.
+
 ## Agent controllers
 
 Runners wait until a human or agent supplies commands. There is no automatic navigation, avoidance, pickup, shoving, delivery, standing up, or fallback bot. Each runner can use an external coding agent over HTTP, a Responses API agent, or the Decisions API. Model controllers choose their own physical commands separately for each runner.

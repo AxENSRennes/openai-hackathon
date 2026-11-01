@@ -10,11 +10,12 @@ Each runner waits for a human or agent controller. The game executes bounded mov
 
 ## Validation on 2026-11-01
 
-- All 46 Node tests pass, covering real Rapier physics, ownership, explicit commands, HTTP controllers, model transport fixtures, instruction versioning, manual controls, and betting settlement.
+- All 48 Node tests pass, covering real Rapier physics, ownership, explicit commands, HTTP controllers, model transport fixtures, instruction versioning, manual controls, betting settlement, lossless asset optimization, and compression negotiation.
 - The Vite production build succeeds.
 - The standalone contrast checker passes its nine reference cases. The instruction skills have been removed; contrast tooling and licenses remain.
 - An external scripted controller completed a wall-clock HTTP round with 100% coffee remaining, using 64 explicit commands in approximately 37 seconds. No hidden game navigation or live model API was involved.
 - Browser review passed for Responses and Decisions controller selection, instruction changes, synthetic microphone submission, transcription failure feedback, stopping, Escape/focus restoration, mobile overflow, and missing-key states. Reports are under ignored `test-results/agent/`.
+- Production builds share identical textures and precompress model files, reducing the Brotli 3D payload from 14.07 MB to 3.40 MB without changing geometry, animations, materials, or texture pixels. Loading progress and a stalled-download message replace indefinite waiting. `scripts/review-loading.mjs` checks a cold browser cache at 2 Mbit/s with 150 ms latency and verifies recovery after a failed download.
 
 ## Remaining limits
 

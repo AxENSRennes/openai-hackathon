@@ -85,8 +85,22 @@ export class CoffeeScene {
     return root;
   }
   async loadAssets() {
-    const loader = new GLTFLoader();
-    const [environment, mug, chair, ...employees] = await Promise.all(['environment', 'mug', 'chair', ...RUNNERS.map((runner, index) => index === 0 ? 'character' : `character-${runner.id}`)].map(name => loader.loadAsync(`/assets/${name}.glb`)));
+    THREE.Cache.enabled = true;
+    const manager = new THREE.LoadingManager();
+    const names = ['environment', 'mug', 'chair', ...RUNNERS.map((runner, index) => index === 0 ? 'character' : `character-${runner.id}`)];
+    const progress = new Map(names.map(name => [name, 0]));
+    const report = () => {
+      if (!this.disposed) this.container.dispatchEvent(new CustomEvent('scene-progress', { detail: { percent: Math.floor([...progress.values()].reduce((sum, value) => sum + value, 0) / names.length * 100) } }));
+    };
+    manager.onProgress = report;
+    const loader = new GLTFLoader(manager);
+    const [environment, mug, chair, ...employees] = await Promise.all(names.map(async name => {
+      const asset = await loader.loadAsync(`/assets/${name}.glb`, event => {
+        if (event.total) progress.set(name, Math.min(.85, event.loaded / event.total * .85));
+        report();
+      });
+      progress.set(name, 1); report(); return asset;
+    }));
     if (this.disposed) { for (const asset of [environment, mug, chair, ...employees]) this.disposeAsset(asset.scene); return; }
     this.world.add(this.registerAsset(environment.scene));
     this.mugAsset = mug.scene; this.registerAsset(mug.scene);

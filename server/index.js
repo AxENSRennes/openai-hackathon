@@ -8,6 +8,7 @@ import { Server } from 'socket.io';
 import { CoffeeSimulation, RUNNERS, initializePhysics } from '../shared/simulation.js';
 import { BettingBook } from './betting.js';
 import { AgentPlanner } from './planner.js';
+import { compressedModels } from './assets.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 if (existsSync(path.join(root, '.env'))) {
@@ -225,7 +226,10 @@ io.on('connection', (socket) => {
 
 let vite;
 if (production) {
-  app.use(express.static(path.join(root, 'dist')));
+  app.use('/assets', compressedModels(path.join(root, 'dist', 'assets')));
+  app.use(express.static(path.join(root, 'dist'), { setHeaders(response, file) {
+    if (/[/\\]shared-textures[/\\][a-f0-9]{64}\.(png|jpg|webp)$/.test(file)) response.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+  } }));
   app.use((_request, response) => response.sendFile(path.join(root, 'dist', 'index.html')));
 } else {
   const { createServer: createViteServer } = await import('vite');
