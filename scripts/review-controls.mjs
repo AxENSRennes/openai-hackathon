@@ -17,7 +17,7 @@ async function connect() { const socket = io(target, { transports: ['websocket']
 const host = await connect(); let state; host.on('state', value => { state = value; }); await until(() => state);
 await initializePhysics(); const navigator = new CoffeeSimulation();
 const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--enable-unsafe-swiftshader'] });
-const context = await browser.newContext({ viewport: { width: 1280, height: 720 }, recordVideo: process.env.REVIEW_VIDEO === '0' ? undefined : { dir: output, size: { width: 1280, height: 720 } } });
+const context = await browser.newContext({ viewport: { width: Number(process.env.REVIEW_WIDTH) || 1280, height: Number(process.env.REVIEW_HEIGHT) || 720 }, recordVideo: process.env.REVIEW_VIDEO === '0' ? undefined : { dir: output, size: { width: 1280, height: 720 } } });
 const page = await context.newPage(); page.on('pageerror', error => errors.push(error.message));
 const held = new Set();
 async function keys(desired) {
@@ -25,9 +25,9 @@ async function keys(desired) {
   for (const key of desired) if (!held.has(key)) { await page.keyboard.down(key); held.add(key); }
 }
 const agent = () => state.agents.find(item => item.id === 'astra');
-async function navigate(goal) {
+async function navigate(goal, expectedAction = null) {
   const start = Date.now();
-  while (Math.hypot(agent().x - goal.x, agent().z - goal.z) > .34) {
+  while (Math.hypot(agent().x - goal.x, agent().z - goal.z) > .34 && (!expectedAction || agent().contextualAction?.type !== expectedAction)) {
     assert.equal(state.phase, 'racing', 'The manual scenario must remain in the active round.');
     if (Date.now() - start > 40000) throw new Error(`Could not reach ${JSON.stringify(goal)} from ${JSON.stringify(agent())}`);
     navigator.gate.closed = state.gate.closed;
@@ -37,7 +37,7 @@ async function navigate(goal) {
     const dx = next.x - agent().x, dz = next.z - agent().z, desired = new Set();
     if (Math.abs(dx) > .08) desired.add(dx > 0 ? 'ArrowRight' : 'ArrowLeft');
     if (Math.abs(dz) > .08) desired.add(dz > 0 ? 'ArrowDown' : 'ArrowUp');
-    if (agent().carrying || Math.hypot(agent().x - goal.x, agent().z - goal.z) < 1.8) desired.add('Shift');
+    if ((agent().carrying && process.env.REVIEW_CARRY_PACE !== 'fast') || Math.hypot(agent().x - goal.x, agent().z - goal.z) < 1.8) desired.add('Shift');
     await keys(desired); await pause(70);
   }
   await keys(new Set()); await pause(180);
@@ -69,13 +69,13 @@ try {
   await until(() => state.stations[0].ready, 10000);
   await navigate(LEVEL.stations[0]); await interact('take'); assert.equal(agent().cupId, cupId);
   await checkpoint('coffee-carry');
-  await navigate(LEVEL.customer.delivery); await interact('deliver');
+  await navigate(LEVEL.customer.delivery, 'deliver'); await interact('deliver');
   await until(() => state.phase === 'results');
   assert.equal(state.winner, 'astra'); assert.ok(agent().coffee >= 55);
   assert.ok(state.cups.find(cup => cup.id === cupId)?.delivered);
   await checkpoint('manual-delivery');
   assert.deepEqual(errors, []);
-  await writeFile(output + 'report.json', JSON.stringify({ target, scenario: 'Actual browser keyboard play with six deliberately idle controlled rivals; ordinary unscripted competition is reviewed separately.', checkpoints, winner: state.winner, coffee: agent().coffee, errors }, null, 2));
+  await writeFile(output + 'report.json', JSON.stringify({ target, viewport: page.viewportSize(), carryPace: process.env.REVIEW_CARRY_PACE || 'careful', checkpointImages: process.env.REVIEW_CHECKPOINT_IMAGES !== '0', scenario: 'Actual browser keyboard play with six deliberately idle controlled rivals; ordinary unscripted competition is reviewed separately.', checkpoints, winner: state.winner, coffee: agent().coffee, errors }, null, 2));
 } finally {
   await keys(new Set()).catch(() => {});
   for (const client of clients) client.disconnect();

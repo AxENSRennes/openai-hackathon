@@ -48,6 +48,7 @@ export function createRunnerMascot(id) {
   let action = null, pose = 'idle', actionTime = 0, strideTime = 0, disposed = false;
   const headPosition = new THREE.Vector3();
   const targetRotation = new THREE.Quaternion();
+  const groundBounds = new THREE.Box3();
 
   function reset() { action = null; actionTime = 0; strideTime = 0; }
 
@@ -112,6 +113,21 @@ export function createRunnerMascot(id) {
     // The persistent server cup is the only rendered cup, including during victory.
     rig.cup.visible = false;
     root.updateMatrixWorld(true);
+    if (action === 'fall' || action === 'recover') {
+      // Ground every silhouette, including wide helmets and outstretched mittens.
+      const floor = root.parent ? root.parent.getWorldPosition(headPosition).y : 0;
+      let lowest = Infinity;
+      rig.body.traverseVisible(node => {
+        if (!node.isMesh) return;
+        if (!node.geometry.boundingBox) node.geometry.computeBoundingBox();
+        groundBounds.copy(node.geometry.boundingBox).applyMatrix4(node.matrixWorld);
+        lowest = Math.min(lowest, groundBounds.min.y);
+      });
+      if (lowest < floor) {
+        rig.body.position.y += (floor - lowest) / MASCOT_SCALE;
+        root.updateMatrixWorld(true);
+      }
+    }
     if (stars.visible) {
       rig.head.getWorldPosition(headPosition); root.worldToLocal(headPosition);
       stars.position.copy(headPosition); stars.position.y += .65;

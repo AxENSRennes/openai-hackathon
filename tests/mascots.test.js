@@ -84,7 +84,8 @@ test('all seven falls stay down, recover to standing, reach for objects, and cel
       const standingHeight = position(view.rig.head).y;
       view.update(.5, .5, { fallen: true, action: 'fall' }, 'racing');
       const fallenHeight = position(view.rig.head).y;
-      assert.ok(fallenHeight < standingHeight * .5);
+      assert.ok(fallenHeight < standingHeight * .7);
+      assert.ok(visibleGeometry(view.root).bounds.min.y >= -1e-5, 'Fallen geometry must not sink through the floor');
       view.update(3, 3.5, { fallen: true, action: 'fall' }, 'racing');
       assert.ok(Math.abs(position(view.rig.head).y - fallenHeight) < 1e-6, 'A fallen runner must not loop back to standing');
       view.update(.2, 3.7, { fallen: true, action: 'recover', recovery: .4 }, 'racing');

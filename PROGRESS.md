@@ -7,13 +7,17 @@ The user authorized committing the current workspace, merging to main, and deplo
 - All 53 Node tests pass. The asset compression fixture now uses the retained chair GLB rather than a deleted employee model.
 - The production build succeeds; the remaining authored environment/chair GLBs and their shared textures total approximately 2.25 MB before HTTP overhead.
 - A cold-cache browser test at 2 Mbit/s and 150 ms latency loaded the office in 26.16 seconds, received loading progress, and recovered through the reload action after a simulated failed model download.
+- The real browser spectated a complete external HTTP-controller round: Astra delivered 100% coffee in 34.62 seconds using 61 explicit commands. The other six mascots were idle; this is a scripted controller verification, not live model competition. Video, delivery capture, and reports are under ignored `test-results/release-round/` and `test-results/agent/`.
+- The phone browser review passes for all seven portraits, a 50-coin Mistral wager replaced by 100 on Astra (wallet 950 then 900), persistence after reload, and widths 320/390/768 without overflow. `/join` loads no scene/Three/glTF resources and reports no browser errors.
+- The corrected continuous-WebGL keyboard review completed pickup, unattended brewing, carrying, and delivery: Astra served 90.65% coffee in 55.77 seconds at 960×540, with the other six runners deliberately held idle, no intermediate capture stalls, and no JavaScript errors.
+- Initial keyboard review attempts expired or exceeded the automation route timeout on software WebGL. One reached the valid delivery interaction while the driver still demanded a precise waypoint. The driver now accepts the authoritative contextual delivery action; this changes the test harness, not the game simulation.
 - Original employee models, portraits, and mug artwork are removed from the active asset path. Persistent cups, physics, betting, and direct command ownership are retained for all seven mascots.
 
 The Level 4 quality contract remains unfulfilled. The software-rendered VPS review does not certify GPU performance or commercial animation polish. Cups are currently a finite supply of 12 per round; breaking every cup leaves no replacement until the next round. Real OpenAI decision and voice quality still require live API verification.
 
 ## Release target
 
-The current release combines the rebuilt office arena, authored employee assets and animations, fullscreen HUD, camera and audio controls, phone betting, direct keyboard control, and explicit agent command execution. Release changes are integrated into `main`, which triggers the GitHub Actions deployment workflow for `coffee-run.service` on port 5173. Development runs separately on port 5174. Other VPS applications must remain untouched.
+The current release combines the rebuilt office arena, the seven mascot designs and their physical action animations, fullscreen HUD, camera and audio controls, phone betting, direct keyboard control, and explicit agent command execution. Release changes are integrated into `main`, which triggers the GitHub Actions deployment workflow for `coffee-run.service` on port 5173. Development runs separately on port 5174. Other VPS applications must remain untouched.
 
 ## Agent behavior
 
