@@ -10,7 +10,7 @@ Prints the contrast ratio and a PASS/FAIL verdict for normal text (4.5:1)
 and large text (3:1, 18px+ per antislop R-25). Exit code 0 only when both
 verdicts pass, so scripts can chain on it.
 
---selftest parses the reference table out of the SKILL.md next to this script
+--selftest parses the reference table out of the references/CONTRAST-CASES.md next to this script
 (the skill doc is the source of truth, not a list copied into this script) and
 recomputes every row with the formula, checking the ratio and both verdicts.
 """
@@ -69,12 +69,12 @@ def contrast_ratio(color_a, color_b):
 
 def reference_doc_path():
     here = os.path.dirname(os.path.abspath(__file__))
-    candidate = os.path.join(here, "SKILL.md")
+    candidate = os.path.join(here, "references/CONTRAST-CASES.md")
     return candidate if os.path.isfile(candidate) else None
 
 
 def parse_reference_rows(path):
-    """Reference table rows from SKILL.md, with the ratio already a float.
+    """Reference table rows from references/CONTRAST-CASES.md, with the ratio already a float.
 
     A row that does not split into four cells is dropped silently, not raised.
     """
@@ -108,15 +108,15 @@ def parse_reference_rows(path):
 def selftest():
     doc = reference_doc_path()
     if doc is None:
-        print("selftest: SKILL.md not found next to the script; cannot check the table")
+        print("selftest: references/CONTRAST-CASES.md not found next to the script; cannot check the table")
         return 2
     try:
         rows = parse_reference_rows(doc)
     except (OSError, ValueError) as exc:
-        print(f"selftest: could not read the table from SKILL.md: {exc}")
+        print(f"selftest: could not read the table from references/CONTRAST-CASES.md: {exc}")
         return 1
     if not rows:
-        print("selftest: no reference rows found in SKILL.md")
+        print("selftest: no reference rows found in references/CONTRAST-CASES.md")
         return 1
 
     failures = 0
