@@ -1,0 +1,38 @@
+[Unit]
+Description=Coffee Run multiplayer game
+After=network.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=coffee-run
+Group=coffee-run
+WorkingDirectory=/srv/coffee-run/current
+Environment=NODE_ENV=production
+Environment=PORT=5173
+EnvironmentFile=/etc/coffee-run/coffee-run.env
+ExecStart=/usr/bin/node --max-old-space-size=512 server/index.js
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=20
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+# Node uses netlink to discover network interfaces for the join URL.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077
+MemoryHigh=768M
+MemoryMax=1G
+CPUQuota=200%
+TasksMax=128
+
+[Install]
+WantedBy=multi-user.target

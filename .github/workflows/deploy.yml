@@ -1,0 +1,58 @@
+name: Deploy Coffee Run
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coffee-run-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - name: Package the production server and client
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        run: |
+          printf '%s\n' "$GITHUB_SHA" > REVISION
+          tar -czf "$RUNNER_TEMP/coffee-run.tar.gz" dist server shared package.json package-lock.json REVISION
+      - name: Deploy to the VPS
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        env:
+          DEPLOY_KEY: ${{ secrets.COFFEE_RUN_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.COFFEE_RUN_KNOWN_HOSTS }}
+          DEPLOY_HOST: ${{ vars.COFFEE_RUN_HOST }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${DEPLOY_KEY:?Configure the COFFEE_RUN_SSH_KEY repository secret}"
+          : "${DEPLOY_KNOWN_HOSTS:?Configure the COFFEE_RUN_KNOWN_HOSTS repository secret}"
+          : "${DEPLOY_HOST:?Configure the COFFEE_RUN_HOST repository variable}"
+          install -m 700 -d "$RUNNER_TEMP/coffee-run-ssh"
+          trap 'rm -rf "$RUNNER_TEMP/coffee-run-ssh"' EXIT
+          printf '%s\n' "$DEPLOY_KEY" > "$RUNNER_TEMP/coffee-run-ssh/key"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$RUNNER_TEMP/coffee-run-ssh/known_hosts"
+          chmod 600 "$RUNNER_TEMP/coffee-run-ssh/key"
+          ssh -T -i "$RUNNER_TEMP/coffee-run-ssh/key" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$RUNNER_TEMP/coffee-run-ssh/known_hosts" \
+            "coffee-deploy@$DEPLOY_HOST" < "$RUNNER_TEMP/coffee-run.tar.gz"
