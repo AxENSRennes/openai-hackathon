@@ -108,6 +108,62 @@ function Lineup({ state, selected, onSelect }) {
   })}{racers.length === 0 && <div className="lineup-loading"><span className="loading-dot" /> Calling the agents to the office…</div>}</div>;
 }
 
+async function normalizeCameoPhoto(file) {
+  const image = await createImageBitmap(file);
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 512;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('This browser could not prepare the photo.');
+    const size = Math.min(image.width, image.height);
+    context.drawImage(image, (image.width - size) / 2, (image.height - size) / 2, size, size, 0, 0, 512, 512);
+
+    for (const quality of [.9, .8, .7, .6, .5, .4, .3, .2, .1]) {
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/webp', quality));
+      if (!blob || blob.type !== 'image/webp') throw new Error('This browser could not encode the photo as WebP.');
+      if (blob.size <= 256 * 1024) return blob;
+    }
+    throw new Error('The photo could not be reduced below 256 KB.');
+  } finally {
+    image.close();
+  }
+}
+
+function CameoPanel({ state, mobile = false, controls = false, busy = false, message, onPhoto, onPreset, connected = false }) {
+  const cameo = state?.cameo;
+  const current = cameo?.current;
+  const incidents = (state?.events || []).filter(event => event.type === 'cameo');
+  const currentIncident = incidents.find(event => event.visitId === current?.visitId);
+  const highlightedIncident = current ? currentIncident : incidents[0];
+  const previousIncidents = incidents.filter(event => event.id !== highlightedIncident?.id).slice(0, mobile ? 3 : 1);
+  const phaseLabel = current
+    ? current.phase === 'entering' ? 'Entering the office' : current.phase === 'causing-effect' ? 'Causing trouble' : 'Making an escape'
+    : incidents.length ? 'Last visit' : 'No visits yet';
+  const summary = current
+    ? current.effect ? currentIncident?.text || 'The cameo effect has been applied.' : 'The cameo is on its way to the coffee machine.'
+    : incidents[0]?.text || 'The agents have the floor to themselves.';
+
+  return <section className={`cameo-panel ${mobile ? 'phone-cameo' : ''}`} aria-label="Cameo status">
+    <div className="cameo-heading" aria-live="polite"><div><span className="eyebrow">THE TROUBLEMAKER</span><h2>{phaseLabel}</h2></div><span className="cameo-queue">Queued <strong>{cameo?.queuedCount ?? 0}</strong></span></div>
+    <div className="cameo-detail">
+      {current?.assetUrl && <img className="cameo-preview" src={current.assetUrl} alt="Uploaded photo for the current cameo" width="56" height="56" />}
+      <p aria-live="polite">{summary}</p>
+    </div>
+    {mobile && previousIncidents.length > 0 && <div className="phone-cameo-incidents" aria-label="Recent cameo incidents">
+      {previousIncidents.map(event => <p key={event.id}>{event.text}</p>)}
+    </div>}
+    {controls && state?.phase === 'racing' && <div className="cameo-controls">
+      <input className="cameo-file-input" id="cameo-photo" type="file" accept="image/*" disabled={!connected || busy} onChange={onPhoto} />
+      <label className={`cameo-photo-button ${!connected || busy ? 'disabled' : ''}`} htmlFor="cameo-photo">{busy ? 'Preparing photo…' : 'Choose photo and trigger'}</label>
+      <button type="button" className="cameo-preset-button" onClick={onPreset} disabled={!connected || busy}>Trigger preset: rascal</button>
+      <span className="cameo-help">Choosing a photo queues one visit. It is cropped to 512 × 512 WebP.</span>
+    </div>}
+    {controls && message && <p className={`cameo-message ${message.error ? 'error' : ''}`} role={message.error ? 'alert' : 'status'}>{message.text}</p>}
+    {mobile && !state && <p className="cameo-loading" role="status">Connecting to cameo updates…</p>}
+  </section>;
+}
+
 export default function App() {
   const mobileJoin = window.location.pathname.startsWith('/join');
   const [state, setState] = useState(null);
@@ -121,12 +177,17 @@ export default function App() {
   const [showQR, setShowQR] = useState(false);
   const [camera, setCamera] = useState('overview');
   const [sound, setSound] = useState(false);
+  const [cameoBusy, setCameoBusy] = useState(false);
+  const [cameoMessage, setCameoMessage] = useState(null);
   const [name, setName] = useState(() => localStorage.getItem('coffee-run-name') || '');
   const [editingName, setEditingName] = useState(mobileJoin && !localStorage.getItem('coffee-run-name'));
   const socketRef = useRef(null);
   const audioRef = useRef(null);
   const soundRef = useRef(false);
   const eventRef = useRef(null);
+  const cameoEventIdsRef = useRef(new Set());
+  const cameoVisitRef = useRef(null);
+  const suppressCuesRef = useRef(true);
   const playerId = useRef(localStorage.getItem('coffee-run-player') || window.crypto?.randomUUID?.() || `guest-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`);
   const joinUrl = state?.joinUrl || `${window.location.origin}/join`;
   const closeQR = React.useCallback(() => setShowQR(false), []);
@@ -137,7 +198,7 @@ export default function App() {
     const oscillator = context.createOscillator();
     const gain = context.createGain();
     oscillator.type = 'sine';
-    const frequency = type === 'win' || type === 'delivery' ? 740 : type === 'spill' || type === 'fall' ? 180 : 420;
+    const frequency = type === 'win' || type === 'delivery' ? 740 : type === 'spill' || type === 'fall' ? 180 : type === 'cameo-enter' ? 340 : type === 'cameo' ? 520 : 420;
     oscillator.frequency.setValueAtTime(frequency, context.currentTime);
     oscillator.frequency.exponentialRampToValueAtTime(frequency * (type === 'fall' ? .45 : 1.4), context.currentTime + .12);
     gain.gain.setValueAtTime(.035, context.currentTime);
@@ -152,6 +213,7 @@ export default function App() {
     const socket = io({ reconnection: true });
     socketRef.current = socket;
     const identify = () => {
+      suppressCuesRef.current = true;
       setConnected(true);
       socket.emit('join', { playerId: playerId.current, name: localStorage.getItem('coffee-run-name') || `Guest ${playerId.current.slice(0, 4).toUpperCase()}` });
     };
@@ -161,11 +223,22 @@ export default function App() {
     socket.on('state', snapshot => {
       setState(snapshot);
       setSelected(current => current || snapshot.racers?.[0]?.id || null);
+      const suppressCues = suppressCuesRef.current;
       const latest = snapshot.events?.[0];
       if (latest && latest.id !== eventRef.current) {
-        if (eventRef.current) playTone(latest.type);
+        if (eventRef.current && !suppressCues && latest.type !== 'cameo') playTone(latest.type);
         eventRef.current = latest.id;
       }
+      const cameoEvents = (snapshot.events || []).filter(event => event.type === 'cameo');
+      if (!suppressCues && cameoEvents.some(event => !cameoEventIdsRef.current.has(event.id))) playTone('cameo');
+      cameoEventIdsRef.current = new Set(cameoEvents.map(event => event.id));
+      const visitId = snapshot.cameo?.current?.visitId || null;
+      if (suppressCues) cameoVisitRef.current = visitId;
+      else if (visitId !== cameoVisitRef.current) {
+        if (visitId && snapshot.cameo.current.phase === 'entering') playTone('cameo-enter');
+        cameoVisitRef.current = visitId;
+      }
+      suppressCuesRef.current = false;
     });
     socket.on('player', setPlayer);
     return () => { socket.disconnect(); audioRef.current?.close(); };
@@ -213,6 +286,72 @@ export default function App() {
     });
   }
 
+  function triggerPresetCameo(fallbackReason = '') {
+    const socket = socketRef.current;
+    if (!socket?.connected) {
+      setCameoBusy(false);
+      setCameoMessage({ error: true, text: fallbackReason ? `Photo upload failed: ${fallbackReason} The preset cameo could not be triggered while disconnected.` : 'The preset cameo could not be triggered while disconnected.' });
+      return;
+    }
+    setCameoBusy(true);
+    setCameoMessage({ text: fallbackReason ? 'Photo upload failed. Triggering the preset cameo…' : 'Triggering the preset cameo…' });
+    socket.timeout(5000).emit('host:trigger', (error, result) => {
+      setCameoBusy(false);
+      const ok = !error && result?.ok;
+      if (fallbackReason) {
+        setCameoMessage({
+          error: !ok,
+          text: ok
+            ? `Photo upload failed: ${fallbackReason} The preset cameo was triggered instead.`
+            : `Photo upload failed: ${fallbackReason} The preset cameo could not be triggered: ${result?.error || 'no server response'}.`,
+        });
+      } else {
+        setCameoMessage({
+          error: !ok,
+          text: ok
+            ? `Preset cameo queued at position ${result.queuedPosition}.`
+            : result?.error || 'The preset cameo could not be triggered. Please try again.',
+        });
+      }
+    });
+  }
+
+  async function uploadCameoPhoto(file) {
+    setCameoBusy(true);
+    setCameoMessage({ text: 'Preparing a 512 × 512 WebP photo…' });
+    try {
+      const image = await normalizeCameoPhoto(file);
+      const socket = socketRef.current;
+      if (!socket?.connected) throw new Error('The host disconnected before upload.');
+      setCameoMessage({ text: 'Uploading the photo…' });
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 12_000);
+      let response;
+      try {
+        response = await fetch('/api/cameo-visits', {
+          method: 'POST',
+          headers: { 'Content-Type': 'image/webp', 'X-Coffee-Host-Socket': socket.id },
+          body: image,
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeout);
+      }
+      const result = await response.json().catch(() => null);
+      if (!response.ok || !result?.ok) throw new Error(result?.error || 'The upload did not go through.');
+      setCameoBusy(false);
+      setCameoMessage({ text: `Photo cameo queued at position ${result.queuedPosition}.` });
+    } catch (error) {
+      triggerPresetCameo(error.name === 'AbortError' ? 'The upload timed out.' : error.message || 'The photo could not be used.');
+    }
+  }
+
+  function handleCameoPhotoChange(event) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = '';
+    if (file) uploadCameoPhoto(file);
+  }
+
   function toggleSound() {
     const next = !sound;
     if (next) {
@@ -236,13 +375,14 @@ export default function App() {
 
   return <div className={`app ${mobileJoin ? 'phone-mode' : ''}`}><header className="site-header"><a className="brand" href="/" aria-label="Coffee Run home"><span className="brand-icon"><Icon name="cup" size={25} /></span><span>COFFEE<span className="brand-run">RUN<span className="brand-dot">•</span></span></span></a><div className="header-tagline">Artificial intelligence.<br /><strong>Questionable coordination.</strong></div><div className="header-actions"><span className={`connection-pill ${connected ? '' : 'offline'}`}><span className="live-dot" />{connected ? 'LIVE FROM THE OFFICE' : 'CONNECTING TO OFFICE'}</span>{!mobileJoin && <button className="join-button" type="button" onClick={() => setShowQR(true)}><Icon name="qr" size={19} /><span>Join on your phone</span><Icon name="arrow" size={17} /></button>}</div></header>
     <main>{mobileJoin ? <div className="mobile-intro"><span className="eyebrow">Welcome to the office</span><h1>Good coffee.<br /><span>Terrible decisions.</span></h1><div className="mobile-round"><span className="live-dot" /> ROUND {String(state?.round || 1).padStart(2, '0')}<strong>{phaseText(state?.phase)}</strong><span>{formattedTime(state?.timeLeft)}</span></div></div> : <div className="broadcast-intro"><div className="intro-title"><span className="eyebrow"><span className="tiny-square" /> The autonomous office Olympics</span><h1>Just bring the <span>coffee.</span></h1></div><div className="mission-intro"><span className="mission-number">01</span><p>Six agents. One coffee machine.<br /><strong>What could possibly go wrong?</strong></p></div></div>}
+    {mobileJoin && <CameoPanel state={state} mobile />}
     <div className="game-layout">{!mobileJoin && <section className="broadcast" aria-label="Live office broadcast"><div className="stage-topbar"><div className="round-label"><span className="round-index">R{String(state?.round || 1).padStart(2, '0')}</span><span className="stage-phase"><span className="live-dot" />{phaseText(state?.phase)}</span></div><div className={`phase-clock ${state?.timeLeft < 10 ? 'urgent' : ''}`}><span>{state?.phase === 'racing' ? 'TIME LEFT' : state?.phase === 'results' ? 'NEXT ROUND' : 'BETS CLOSE IN'}</span><strong>{formattedTime(state?.timeLeft)}</strong></div></div>
       <div className="scene-wrap"><CoffeeViewport state={state} camera={camera} selected={selected} onSelect={setSelected} /><div className="scene-location"><span className="location-symbol">⌖</span> FLOOR 01 <span>/</span> THE DAILY GRIND</div><div className="scene-tools"><button className="scene-tool" type="button" onClick={() => setCamera(camera === 'overview' ? 'track' : 'overview')} aria-label={camera === 'overview' ? 'Follow selected runner' : 'Show whole office'} aria-pressed={camera === 'track'}><Icon name="camera" size={17} /><span>{camera === 'overview' ? 'Overview' : 'Following'}</span></button><button className="scene-tool sound-button" type="button" onClick={toggleSound} aria-label={sound ? 'Mute game sound' : 'Enable game sound'} aria-pressed={sound}><Icon name={sound ? 'volume' : 'muted'} size={17} /></button></div>
         {!state && <div className="stage-waiting"><span className="loading-dot" /><strong>Opening the office…</strong><span>{connected ? 'The agents are clocking in.' : 'Waiting for the game server.'}</span></div>}
         {state?.phase === 'betting' && <div className="betting-banner"><span className="banner-sticker"><Icon name="coin" size={23} /></span><div><span className="eyebrow">A new round of bad decisions</span><strong>Who’s bringing it home?</strong></div><button type="button" onClick={() => hostAction('host:start')} disabled={!connected}>Start race<Icon name="play" size={16} /></button></div>}
         {state?.phase === 'results' && <div className="results-banner"><span className="winner-kicker"><Icon name="crown" size={24} /> {winner ? 'COFFEE DELIVERED' : 'COFFEE BREAKDOWN'}</span><h2>{winner?.name || 'No one'}<span>{winner ? ' actually did it.' : ' made it home.'}</span></h2><p>{winner ? 'One small sip for an agent. One giant relief for the office.' : 'The coffee machine is still hiring.'}</p><button type="button" onClick={() => hostAction('host:reset')}>Another round<Icon name="refresh" size={16} /></button></div>}
-      </div><div className="mission-strip"><span className="mission-cup"><Icon name="cup" size={21} /></span><p><strong>The assignment</strong> Get a cup. Fill it. Survive your colleagues. Deliver it at least <b>55% full.</b></p><span className="agent-mode">{state?.agentMode === 'openai' ? 'AI agents' : 'Local agents'}</span></div>
-      <section className="incident-feed" aria-label="Live race incidents"><div className="feed-title"><span className="live-dot" /><span>OFFICE GOSSIP</span><small>Unfiltered, unfortunately.</small></div><div className="feed-events" aria-live="polite">{events.length ? events.map(event => <div className={`feed-event event-${event.type}`} key={event.id}><span className="feed-marker">{event.type === 'win' || event.type === 'delivery' ? '★' : event.type === 'spill' || event.type === 'fall' ? '!' : '↳'}</span><span>{event.text}</span></div>) : <div className="feed-event quiet"><span className="feed-marker">↳</span><span>Suspiciously peaceful. That won’t last.</span></div>}</div></section>
+      </div><CameoPanel state={state} controls busy={cameoBusy} message={cameoMessage} onPhoto={handleCameoPhotoChange} onPreset={() => triggerPresetCameo()} connected={connected} /><div className="mission-strip"><span className="mission-cup"><Icon name="cup" size={21} /></span><p><strong>The assignment</strong> Get a cup. Fill it. Survive your colleagues. Deliver it at least <b>55% full.</b></p><span className="agent-mode">{state?.agentMode === 'openai' ? 'AI agents' : 'Local agents'}</span></div>
+      <section className="incident-feed" aria-label="Live race incidents"><div className="feed-title"><span className="live-dot" /><span>OFFICE GOSSIP</span><small>Unfiltered, unfortunately.</small></div><div className="feed-events" aria-live="polite">{events.length ? events.map(event => <div className={`feed-event event-${event.type}`} key={event.id}><span className="feed-marker">{event.type === 'win' || event.type === 'delivery' ? '★' : event.type === 'cameo' || event.type === 'spill' || event.type === 'fall' ? '!' : '↳'}</span><span>{event.text}</span></div>) : <div className="feed-event quiet"><span className="feed-marker">↳</span><span>Suspiciously peaceful. That won’t last.</span></div>}</div></section>
     </section>}{betPanel}</div>
     {mobileJoin && state?.phase === 'results' && <section className="mobile-winner"><Icon name="crown" size={25} /><span>{winner ? `${winner.name} brought the coffee home.` : 'No coffee made it home this time.'}</span></section>}
     </main><footer className="site-footer"><span>A highly unproductive experiment.</span><span>Built with agents. Raced by agents. Blamed on agents.</span><span className="footer-coffee"><Icon name="cup" size={14} /> Please do not try this at work.</span></footer>{toast && <div className={`toast ${toast.error ? 'error' : ''}`} role={toast.error ? 'alert' : 'status'}><Icon name={toast.error ? 'close' : 'check'} size={18} /><span>{toast.text}</span><button type="button" onClick={() => setToast(null)} aria-label="Dismiss notification"><Icon name="close" size={16} /></button></div>}{showQR && <QRModal url={joinUrl} onClose={closeQR} />}</div>;

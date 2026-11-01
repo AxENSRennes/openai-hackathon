@@ -180,7 +180,6 @@ io.on('connection', (socket) => {
   socket.emit('state', publicState());
   socket.on('join', (payload = {}, callback) => {
     if (!payload || typeof payload !== 'object') return;
-    socket.data.isHost = false;
     const player = book.join(payload.playerId, payload.name);
     socket.data.playerId = player.id;
     socket.emit('player', player);
