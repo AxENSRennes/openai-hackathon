@@ -30,10 +30,11 @@ Implementation spec: [Coffee Run Cameo Implementation Spec](https://linear.app/t
 - [Implement authoritative cameo scheduling and effects](https://linear.app/tsaimc2/issue/TSA-86/implement-authoritative-cameo-scheduling-and-effects): the server owns serialized visits, authoritative phases and outcomes, stable incidents, simulation effects, and race cleanup.
 - [Add bounded photo upload and ephemeral cameo assets](https://linear.app/tsaimc2/issue/TSA-89/add-bounded-photo-upload-and-ephemeral-cameo-assets): host uploads are validated and served same-origin from ephemeral memory, with assets released after visits or resets.
 - [Render the cameo in the 3D office scene](https://linear.app/tsaimc2/issue/TSA-88/render-the-cameo-in-the-3d-office-scene): the broadcast scene presents uploaded photos or the procedural preset near the coffee machine, uses authoritative phase state, and visibly signals spill and delay effects without replaying old reactions.
+- [Add host cameo controls and phone status](https://linear.app/tsaimc2/issue/TSA-87/add-host-cameo-controls-and-phone-status): the broadcast host can queue a photo or preset cameo with visible upload fallback feedback; the phone shows authoritative status and incidents without trigger controls.
 
 ## Not yet specified
 
-- No additional decisions are known. Implementation work is tracked in child Task issues.
+- No additional decisions are known. All implementation tasks are complete.
 
 ## Out of scope
 
@@ -44,4 +45,4 @@ Implementation spec: [Coffee Run Cameo Implementation Spec](https://linear.app/t
 
 ## Frontier
 
-- [Add host cameo controls and phone status](https://linear.app/tsaimc2/issue/TSA-87/add-host-cameo-controls-and-phone-status)
+- No open child tasks.
