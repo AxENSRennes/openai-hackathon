@@ -9,7 +9,7 @@ function position(a, x, z) {
   a.body.setTranslation({ x, y: .78, z }, true); a.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
 }
 function run(sim, command) {
-  const result = sim.executeCommand('pip', command);
+  const result = sim.executeCommand('astra', command);
   assert.equal(result.ok, true, result.error);
   for (let i = 0; i < 180 && sim.agents[0].command && !sim.finished; i++) sim.step(1 / 60);
   assert.equal(sim.agents[0].lastCommand.status, 'completed', JSON.stringify(sim.agents[0].lastCommand));
@@ -52,12 +52,12 @@ test('bounded movement collides with furniture and never reroutes or applies uns
 test('commands reject malformed input, unavailable targets, busy runners, and human-controlled runners', () => {
   const sim = new CoffeeSimulation();
   try {
-    for (const command of [null, { type: 'teleport' }, { type: 'move', x: NaN, z: 0, durationMs: 100 }, { type: 'move', x: 1, z: 0, durationMs: 5000 }, { type: 'look', heading: Infinity }, { type: 'take' }, { type: 'push', targetId: 'bolt' }, { type: 'take', targetId: sim.cups[0].id }]) assert.equal(sim.executeCommand('pip', command).ok, false);
-    assert.equal(sim.executeCommand('pip', { type: 'wait', durationMs: 500 }).ok, true);
-    assert.equal(sim.executeCommand('pip', { type: 'look', heading: 0 }).ok, false);
-    assert.equal(sim.executeCommand('pip', { type: 'stop' }).ok, true);
-    sim.setControl('pip', true);
-    assert.equal(sim.executeCommand('pip', { type: 'move', x: 1, z: 0, durationMs: 500 }).ok, false);
+    for (const command of [null, { type: 'teleport' }, { type: 'move', x: NaN, z: 0, durationMs: 100 }, { type: 'move', x: 1, z: 0, durationMs: 5000 }, { type: 'look', heading: Infinity }, { type: 'take' }, { type: 'push', targetId: 'opus' }, { type: 'take', targetId: sim.cups[0].id }]) assert.equal(sim.executeCommand('astra', command).ok, false);
+    assert.equal(sim.executeCommand('astra', { type: 'wait', durationMs: 500 }).ok, true);
+    assert.equal(sim.executeCommand('astra', { type: 'look', heading: 0 }).ok, false);
+    assert.equal(sim.executeCommand('astra', { type: 'stop' }).ok, true);
+    sim.setControl('astra', true);
+    assert.equal(sim.executeCommand('astra', { type: 'move', x: 1, z: 0, durationMs: 500 }).ok, false);
   } finally { sim.dispose(); }
 });
 
@@ -65,7 +65,7 @@ test('a contested pickup reports failure instead of silently choosing another ne
   const sim = new CoffeeSimulation();
   try {
     const [a, rival] = sim.agents; position(a, -7.3, 3.5); position(rival, -6.6, 3.5); a.heading = 0;
-    assert.equal(sim.executeCommand('pip', { type: 'take', targetId: sim.cups[0].id }).ok, true);
+    assert.equal(sim.executeCommand('astra', { type: 'take', targetId: sim.cups[0].id }).ok, true);
     assert.equal(sim.takeCup(rival, sim.cups[0]), true);
     advance(sim, .5);
     assert.equal(a.cupId, null); assert.equal(a.lastCommand.status, 'failed');
@@ -98,7 +98,7 @@ test('an explicit external courier controller completes pickup, unattended brewi
     run(sim, { type: 'take', targetId: cup.id });
     assert.equal(a.coffee, 100);
     drive(LEVEL.customer.delivery); run(sim, { type: 'deliver' });
-    assert.equal(sim.winner, 'pip'); assert.equal(cup.delivered, true); assert.ok(cup.coffee >= 55);
+    assert.equal(sim.winner, 'astra'); assert.equal(cup.delivered, true); assert.ok(cup.coffee >= 55);
     assert.equal(sim.agents.slice(1).some(a => a.cupId || a.command), false);
   } finally { sim.dispose(); }
 });

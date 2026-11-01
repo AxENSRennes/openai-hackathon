@@ -1,6 +1,6 @@
 # Coffee Run
 
-A commercially polished indie vertical slice: six employees compete to bring one coffee to one waiting human. Overcooked! 2's ordinary gameplay is the reference for presentation, readable movement, contextual interactions, animation, and feedback. The detailed quality commitment is defined in [QUALITY_BAR.md](QUALITY_BAR.md).
+A commercially polished indie vertical slice: seven mascots compete to bring one coffee to one waiting human. Overcooked! 2's ordinary gameplay is the reference for presentation, readable movement, contextual interactions, animation, and feedback. The detailed quality commitment is defined in [QUALITY_BAR.md](QUALITY_BAR.md).
 
 This document describes the selected target version. The existing prototype does not yet implement all of this direction.
 

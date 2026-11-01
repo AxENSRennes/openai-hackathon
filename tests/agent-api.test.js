@@ -40,11 +40,11 @@ async function server(mock = false) {
 test('an external agent controls real movement through HTTP with ownership, revisions, retries, and release', { timeout: 15000 }, async () => {
   const service = await server();
   try {
-    const client = new GameAgentClient(service.url, 'pip');
+    const client = new GameAgentClient(service.url, 'astra');
     await client.claim('Move east.');
-    const duplicate = await fetch(`${service.url}/api/agents/pip/claim`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    const duplicate = await fetch(`${service.url}/api/agents/astra/claim`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
     assert.equal(duplicate.status, 409);
-    const unauthorized = await fetch(`${service.url}/api/agents/pip/command`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    const unauthorized = await fetch(`${service.url}/api/agents/astra/command`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
     assert.equal(unauthorized.status, 403);
     await assert.rejects(client.command({ type: 'wait', durationMs: 100 }), /only during a race/);
     assert.equal((await service.ack('host:start')).ok, true);
@@ -56,15 +56,15 @@ test('an external agent controls real movement through HTTP with ownership, revi
     assert.ok(Math.abs((await client.observe()).self.x - stopped.self.x) < .02);
     const previous = await client.observe();
     await client.command({ type: 'move', x: 1, z: 0, durationMs: 1000 }, { wait: false });
-    const revised = await service.ack('host:agent', { action: 'instruction', id: 'pip', instruction: 'Wait here.' });
+    const revised = await service.ack('host:agent', { action: 'instruction', id: 'astra', instruction: 'Wait here.' });
     assert.equal(revised.ok, true); assert.ok(revised.revision > previous.revision);
     const after = await client.observe(); assert.equal(after.self.command, null);
     assert.equal(after.self.lastCommand.status, 'cancelled');
     assert.equal(JSON.stringify(after).includes(client.session.token), false);
-    const stale = await fetch(`${service.url}/api/agents/pip/command`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${client.session.token}` }, body: JSON.stringify({ round: previous.round, revision: previous.revision, sequence: 3, command: { type: 'stop' } }) });
+    const stale = await fetch(`${service.url}/api/agents/astra/command`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${client.session.token}` }, body: JSON.stringify({ round: previous.round, revision: previous.revision, sequence: 3, command: { type: 'stop' } }) });
     assert.equal(stale.status, 409);
     await client.release();
-    const unavailable = await service.ack('host:agent', { action: 'configure', id: 'pip', mode: 'decisions' });
+    const unavailable = await service.ack('host:agent', { action: 'configure', id: 'astra', mode: 'decisions' });
     assert.equal(unavailable.ok, false); assert.match(unavailable.error, /OPENAI_API_KEY/);
     const voice = await fetch(`${service.url}/api/voice/transcribe`, { method: 'POST', headers: { 'Content-Type': 'audio/webm' }, body: new Uint8Array([1]) });
     assert.equal(voice.status, 503);
@@ -74,18 +74,18 @@ test('an external agent controls real movement through HTTP with ownership, revi
 test('Responses and Decisions HTTP modes execute isolated physical commands and accept revised voice instructions using a mock transport', { timeout: 15000 }, async () => {
   const service = await server(true);
   try {
-    for (const [id, mode] of [['pip', 'responses'], ['bolt', 'decisions']]) {
+    for (const [id, mode] of [['astra', 'responses'], ['opus', 'decisions']]) {
       assert.equal((await service.ack('host:agent', { action: 'configure', id, mode, instruction: 'Move east.' })).ok, true);
     }
-    const pip = new GameAgentClient(service.url, 'pip'), bolt = new GameAgentClient(service.url, 'bolt');
-    const starts = [await pip.observe(), await bolt.observe()];
+    const astra = new GameAgentClient(service.url, 'astra'), opus = new GameAgentClient(service.url, 'opus');
+    const starts = [await astra.observe(), await opus.observe()];
     assert.equal((await service.ack('host:start')).ok, true);
-    for (const [index, client] of [pip, bolt].entries()) await until(async () => (await client.observe()).self.x > starts[index].self.x + .25);
+    for (const [index, client] of [astra, opus].entries()) await until(async () => (await client.observe()).self.x > starts[index].self.x + .25);
     const voice = await fetch(`${service.url}/api/voice/transcribe`, { method: 'POST', headers: { 'Content-Type': 'audio/webm' }, body: new Uint8Array([1, 2, 3]) });
     assert.deepEqual(await voice.json(), { ok: true, text: 'Wait here.' });
-    for (const id of ['pip', 'bolt']) assert.equal((await service.ack('host:agent', { action: 'instruction', id, instruction: 'Wait here.' })).ok, true);
-    await pause(700); const stopped = [await pip.observe(), await bolt.observe()]; await pause(350);
-    for (const [index, client] of [pip, bolt].entries()) {
+    for (const id of ['astra', 'opus']) assert.equal((await service.ack('host:agent', { action: 'instruction', id, instruction: 'Wait here.' })).ok, true);
+    await pause(700); const stopped = [await astra.observe(), await opus.observe()]; await pause(350);
+    for (const [index, client] of [astra, opus].entries()) {
       const observation = await client.observe();
       assert.ok(Math.abs(observation.self.x - stopped[index].self.x) < .02);
       assert.equal(observation.instruction, 'Wait here.');
@@ -96,7 +96,7 @@ test('Responses and Decisions HTTP modes execute isolated physical commands and 
 });
 
 test('the agent client observes a completed winning action even when race completion increments the revision', async () => {
-  const client = new GameAgentClient('http://unused.local', 'pip', { token: 'test' });
+  const client = new GameAgentClient('http://unused.local', 'astra', { token: 'test' });
   let reads = 0;
   client.observe = async () => ++reads === 1 ? { round: 1, revision: 2, sequence: 0 } : { round: 1, revision: 3, sequence: 0, finished: true, self: { lastCommand: { id: 9, type: 'deliver', status: 'completed' } } };
   client.request = async () => ({ ok: true, command: { id: 9 }, sequence: 1, revision: 2 });

@@ -9,7 +9,7 @@ assert.ok(['127.0.0.1', 'localhost'].includes(address.hostname) && address.port 
 const socket = io(url, { transports: ['websocket'], reconnection: false });
 await new Promise((resolve, reject) => { socket.once('connect', resolve); socket.once('connect_error', reject); });
 const ack = event => new Promise((resolve, reject) => socket.timeout(3000).emit(event, (error, result) => error ? reject(error) : resolve(result)));
-const client = new GameAgentClient(url, 'pip');
+const client = new GameAgentClient(url, 'astra');
 const commands = [];
 async function command(action) {
   const result = await client.command(action);
@@ -49,8 +49,8 @@ try {
   observation = await command({ type: 'deliver' });
   assert.equal(observation.self.delivered, true);
   assert.ok(observation.self.coffee >= 55);
-  const report = { scenario: 'External scripted controller over HTTP; no model API or hidden game controller', winner: 'pip', coffee: observation.self.coffee, commands, elapsed: observation.elapsed };
+  const report = { scenario: 'External scripted controller over HTTP; no model API or hidden game controller', winner: 'astra', coffee: observation.self.coffee, commands, elapsed: observation.elapsed };
   await mkdir('test-results/agent', { recursive: true });
   await writeFile('test-results/agent/live-external.json', JSON.stringify(report, null, 2));
-  console.log(JSON.stringify({ winner: 'pip', coffee: observation.self.coffee, elapsed: observation.elapsed, commands: commands.length }));
+  console.log(JSON.stringify({ winner: 'astra', coffee: observation.self.coffee, elapsed: observation.elapsed, commands: commands.length }));
 } finally { await client.release().catch(() => {}); socket.disconnect(); }

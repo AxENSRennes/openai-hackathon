@@ -1,6 +1,7 @@
 import { LEVEL, RUNNERS } from './level.js';
 import { createPhysicsWorld, RAPIER } from './physics.js';
 import { validateCommand } from './commands.js';
+import { CUP_HOLD } from './mascots.js';
 export { RUNNERS, LEVEL } from './level.js';
 export { initializePhysics } from './physics.js';
 
@@ -45,7 +46,7 @@ export class CoffeeSimulation {
       const p = LEVEL.spawns[i];
       const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(p.x, .78, p.z).lockRotations().enabledTranslations(true, false, true).setLinearDamping(4).setCcdEnabled(true));
       this.world.createCollider(RAPIER.ColliderDesc.capsule(.44, RADIUS).setMass(4).setFriction(.05).setRestitution(0).setCollisionGroups(((1 << (i + 1)) << 16) | 0xffff), body);
-      return { ...r, ...p, y: 0, body, vx: 0, vz: 0, heading: Math.PI, coffee: 0, carrying: false, cupId: null,
+      return { ...r, ...p, y: 0, body, vx: 0, vz: 0, heading: 0, coffee: 0, carrying: false, cupId: null,
         state: 'Waiting for an agent command', action: 'idle', moving: false, fallen: false, progress: 0, delivered: false,
         decision: 'Waiting for an agent command', strategy: { pace: 'fast', route: 'direct', aggression: r.aggression },
         cooldown: 1 + this.rand() * 2, pushTimer: 0, recovery: 0, safeUntil: 0, rethink: .1 + this.rand() * .65,
@@ -356,7 +357,7 @@ export class CoffeeSimulation {
     if (reason) this.log(reason, 'spill', cup.lastHolderId, position);
   }
   heldPosition(a) {
-    return { x: a.x + Math.sin(a.heading) * .28 + Math.cos(a.heading) * .178, y: .857, z: a.z + Math.cos(a.heading) * .28 - Math.sin(a.heading) * .178 };
+    return { x: a.x + Math.sin(a.heading) * CUP_HOLD.forward + Math.cos(a.heading) * CUP_HOLD.right, y: CUP_HOLD.bodyY, z: a.z + Math.cos(a.heading) * CUP_HOLD.forward - Math.sin(a.heading) * CUP_HOLD.right };
   }
   dropCup(a, dx = 0, dz = 0) {
     const cup = this.cupFor(a); if (!cup) return null;

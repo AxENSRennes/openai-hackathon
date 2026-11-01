@@ -13,7 +13,7 @@ The user explicitly authorized the rebuild before requesting this migration. Con
 ## Fixed game rules
 
 - One human waits for one coffee at one delivery desk.
-- Six agents compete to serve that human first.
+- Seven agents compete to serve that human first.
 - One coffee type; no recipe-correctness minigame.
 - First delivery with at least 55% remaining wins.
 - Shared kitchen and office; actual persistent cups can be held, placed, dropped, recovered, stolen when unattended, spilled, and broken.

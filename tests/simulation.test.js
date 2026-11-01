@@ -41,7 +41,7 @@ test('seeded Rapier worlds reproduce identical external commands without autonom
   const first = new CoffeeSimulation({ round: 7 }), second = new CoffeeSimulation({ round: 7 });
   try {
     for (let frame = 0; frame < 600; frame++) {
-      if (frame % 60 === 0) for (const sim of [first, second]) sim.executeCommand('pip', { type: 'move', x: frame % 120 ? -1 : 1, z: 0, durationMs: 500 });
+      if (frame % 60 === 0) for (const sim of [first, second]) sim.executeCommand('astra', { type: 'move', x: frame % 120 ? -1 : 1, z: 0, durationMs: 500 });
       first.step(tick); second.step(tick);
     }
     assert.equal(first.finished, false);
@@ -202,7 +202,7 @@ test('the timed gate closes the direct corridor and navigation finds the south r
   } finally { sim.dispose(); }
 });
 
-test('all six spawns reach shared resources through the denser arena with either gate state', () => {
+test('all seven spawns reach shared resources through the denser arena with either gate state', () => {
   const sim = new CoffeeSimulation();
   try {
     for (const closed of [false, true]) {
