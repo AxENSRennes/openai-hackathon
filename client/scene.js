@@ -5,8 +5,8 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { LEVEL, RUNNERS } from '../shared/level.js';
 import { CameraDirector } from './camera.js';
 import { GameAudio } from './audio.js';
+import { createRunnerMascot, createTakeawayCup } from './mascot-view.js';
 
-const ACTIONS = { idle: 'Idle', run: 'Run', carry: 'Carry', interact: 'Interact', push: 'Push', fall: 'Fall', recover: 'Recover' };
 const LABELS = { steal: 'SNATCH!', push: 'SHOVE!', drop: 'DROPPED!', break: 'SMASH!', recover: 'BACK UP', ready: 'READY!' };
 const damp = THREE.MathUtils.damp;
 const angleLerp = (a, b, t) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * t;
@@ -37,7 +37,7 @@ export class CoffeeScene {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.NeutralToneMapping; this.renderer.toneMappingExposure = 1.03;
     this.renderer.shadowMap.enabled = !this.lowPowerRendering; this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    this.renderer.domElement.setAttribute('aria-label', 'Six employees compete to deliver a coffee through the shared office');
+    this.renderer.domElement.setAttribute('aria-label', 'Seven mascots compete to deliver a coffee through the shared office');
     this.renderer.domElement.setAttribute('role', 'img');
     container.appendChild(this.renderer.domElement);
     this.scene.add(new THREE.HemisphereLight('#fff3d9', '#69816c', 1.6));
@@ -56,7 +56,11 @@ export class CoffeeScene {
       console.error('Game assets could not load', error);
       container.dispatchEvent(new CustomEvent('scene-error', { detail: { message: 'The office assets could not load. Reload to try again.' } }));
     });
-    this.renderer.setAnimationLoop(() => this.animate());
+    let renderedAt = 0;
+    this.renderer.setAnimationLoop(now => {
+      if (this.lowPowerRendering && now - renderedAt < 1000 / 24) return;
+      renderedAt = now; this.animate();
+    });
   }
   registerAsset(root) {
     const softwareMaterials = new Map();
@@ -87,48 +91,32 @@ export class CoffeeScene {
   async loadAssets() {
     THREE.Cache.enabled = true;
     const manager = new THREE.LoadingManager();
-    const names = ['environment', 'mug', 'chair', ...RUNNERS.map((runner, index) => index === 0 ? 'character' : `character-${runner.id}`)];
+    const names = ['environment', 'chair'];
     const progress = new Map(names.map(name => [name, 0]));
     const report = () => {
       if (!this.disposed) this.container.dispatchEvent(new CustomEvent('scene-progress', { detail: { percent: Math.floor([...progress.values()].reduce((sum, value) => sum + value, 0) / names.length * 100) } }));
     };
     manager.onProgress = report;
     const loader = new GLTFLoader(manager);
-    const [environment, mug, chair, ...employees] = await Promise.all(names.map(async name => {
+    const [environment, chair] = await Promise.all(names.map(async name => {
       const asset = await loader.loadAsync(`/assets/${name}.glb`, event => {
         if (event.total) progress.set(name, Math.min(.85, event.loaded / event.total * .85));
         report();
       });
       progress.set(name, 1); report(); return asset;
     }));
-    if (this.disposed) { for (const asset of [environment, mug, chair, ...employees]) this.disposeAsset(asset.scene); return; }
+    if (this.disposed) { for (const asset of [environment, chair]) this.disposeAsset(asset.scene); return; }
     this.world.add(this.registerAsset(environment.scene));
-    this.mugAsset = mug.scene; this.registerAsset(mug.scene);
+    this.mugAsset = this.registerAsset(createTakeawayCup());
     this.registerAsset(chair.scene);
     for (const [index, runner] of RUNNERS.entries()) {
-      const character = employees[index]; this.registerAsset(character.scene);
-      const root = new THREE.Group(), model = clone(character.scene);
+      const mascot = createRunnerMascot(runner.id), model = this.registerAsset(mascot.root);
+      const root = new THREE.Group();
       root.add(model); this.world.add(root); root.position.set(LEVEL.spawns[index].x, 0, LEVEL.spawns[index].z);
-      model.traverse(object => {
-        if (!object.isMesh) return;
-        const materials = Array.isArray(object.material) ? object.material : [object.material];
-        const recolored = materials.map(material => {
-          if (material.name !== 'Uniform') return material;
-          const copy = material.clone(); copy.color.set(runner.color); this.materials.add(copy); return copy;
-        });
-        object.material = Array.isArray(object.material) ? recolored : recolored[0];
-      });
-      const mixer = new THREE.AnimationMixer(model), actions = new Map();
-      for (const clip of character.animations) {
-        const action = mixer.clipAction(clip); actions.set(clip.name, action);
-        if (['Fall', 'Recover', 'Push', 'Interact'].includes(clip.name)) { action.setLoop(THREE.LoopOnce, 1); action.clampWhenFinished = true; }
-      }
       const marker = this.floorMarker(runner.color, .42, .035); marker.position.y = .025; root.add(marker);
       const shadow = this.contactShadow(.67); root.add(shadow);
       const label = this.makeSprite(256, 96, 1.15, .43); label.sprite.position.y = 2.14; root.add(label.sprite);
-      const characterView = { root, model, mixer, actions, clip: null, socket: model.getObjectByName('HandSocket'), runner, label, labelKey: '', agent: null, lastAction: null };
-      this.characters.set(runner.id, characterView);
-      this.playAction(characterView, 'Idle');
+      this.characters.set(runner.id, { root, model, mascot, socket: mascot.socket, runner, label, labelKey: '', agent: null });
     }
     for (const prop of LEVEL.chairs) {
       const root = clone(chair.scene); root.position.set(prop.x, 0, prop.z); this.world.add(root); root.add(this.contactShadow(.65)); this.chairs.set(prop.id, root);
@@ -213,20 +201,12 @@ export class CoffeeScene {
     const material = new THREE.SpriteMaterial({ color: '#fff9eb', map: this.softTexture(), transparent: true, opacity: .25, depthWrite: false }); this.materials.add(material);
     for (const station of LEVEL.stations) for (let i = 0; i < 5; i++) { const sprite = new THREE.Sprite(material.clone()); this.materials.add(sprite.material); this.world.add(sprite); this.steam.push({ sprite, station, offset: i / 5 }); }
   }
-  playAction(view, name) {
-    if (view.clip === name) return;
-    const next = view.actions.get(name) || view.actions.get('Idle');
-    if (!next) return;
-    const previous = view.actions.get(view.clip);
-    next.reset().setEffectiveTimeScale(1).setEffectiveWeight(1).play();
-    if (previous && previous !== next) next.crossFadeFrom(previous, name === 'Fall' ? .09 : .17, false);
-    view.clip = name;
-  }
   update(state) {
     if (!state || this.disposed) return;
     const changedRound = this.lastRound !== state.round;
     if (changedRound) {
       this.lastRound = state.round; this.seenEvents.clear(); this.frames = [];
+      for (const view of this.characters.values()) view.mascot.reset();
       for (const cup of this.cups.values()) this.world.remove(cup); this.cups.clear();
       for (const group of this.shards.values()) { group.traverse(object => object.geometry?.dispose()); this.world.remove(group); } this.shards.clear();
       for (const puddle of this.puddles.values()) { this.world.remove(puddle); puddle.geometry.dispose(); } this.puddles.clear();
@@ -260,7 +240,7 @@ export class CoffeeScene {
         root.traverse(object => { if (/coffee/i.test(object.name) || /coffee/i.test(object.material?.name)) root.userData.coffeeMeshes.push(object); });
         this.world.add(root); this.cups.set(cup.id, root);
       }
-      if (root.userData.target && root.userData.target.holderId !== cup.holderId && cup.holderId) root.userData.attach = { from: root.position.clone(), at: performance.now() };
+      if (root.userData.target && root.userData.target.holderId !== cup.holderId) root.userData.attach = { from: root.position.clone(), at: performance.now() };
       root.userData.target = cup; root.visible = !cup.broken;
       if (cup.broken && !this.shards.has(cup.id)) {
         const group = new THREE.Group(); group.position.set(cup.x, .035, cup.z); group.userData.cupId = cup.id;
@@ -271,7 +251,11 @@ export class CoffeeScene {
         }
         this.world.add(group); this.shards.set(cup.id, group);
       }
-      for (const liquid of root.userData.coffeeMeshes) { liquid.visible = cup.coffee > .5; liquid.position.y = .05 + .22 * Math.min(1, cup.coffee / 100); }
+      for (const liquid of root.userData.coffeeMeshes) {
+        liquid.visible = cup.coffee > .5;
+        const [low, high] = liquid.userData.fillRange || [.05, .27];
+        liquid.position.y = THREE.MathUtils.lerp(low, high, Math.min(1, cup.coffee / 100));
+      }
     }
     for (const [id, root] of this.cups) if (!cupIds.has(id)) { this.world.remove(root); this.cups.delete(id); }
     for (const station of state.stations || []) {
@@ -326,7 +310,7 @@ export class CoffeeScene {
   removePopup(popup) { this.world.remove(popup.sprite); popup.texture.dispose(); popup.sprite.material.dispose(); this.textures.delete(popup.texture); this.materials.delete(popup.sprite.material); }
   confetti() {
     for (let i = 0; i < 60; i++) {
-      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(.09, .17), this.effectMaterial(RUNNERS[i % 6].color)); mesh.position.set(4 + Math.random() * 5, 4 + Math.random() * 4, -1 + Math.random() * 4); this.world.add(mesh);
+      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(.09, .17), this.effectMaterial(RUNNERS[i % RUNNERS.length].color)); mesh.position.set(4 + Math.random() * 5, 4 + Math.random() * 4, -1 + Math.random() * 4); this.world.add(mesh);
       this.particles.push({ mesh, velocity: new THREE.Vector3((Math.random() - .5) * 2, -.5, (Math.random() - .5) * 2), life: 4, confetti: true });
     }
   }
@@ -335,24 +319,11 @@ export class CoffeeScene {
     const now = performance.now(), dt = Math.min((now - this.lastTime) / 1000, .25); this.lastTime = now; this.time += dt;
     for (const [id, view] of this.characters) {
       const agent = this.interpolated('agents', id, now) || view.agent;
-      if (!agent) { view.mixer.update(dt); continue; }
-      const distance = Math.hypot(view.root.position.x - agent.x, view.root.position.z - agent.z);
+      if (!agent) { view.mascot.update(dt, this.time); continue; }
       view.root.position.set(agent.x, agent.y || 0, agent.z); view.root.rotation.y = angleLerp(view.root.rotation.y, agent.heading || 0, 1 - Math.exp(-dt * 16));
-      let action = this.state?.phase === 'betting' ? 'Idle' : agent.delivered ? 'Interact' : ACTIONS[agent.action] || 'Idle';
-      if (this.state?.phase === 'results' && !agent.delivered) action = agent.fallen ? 'Fall' : agent.carrying ? 'CarryIdle' : 'Idle';
-      if (action === 'Carry' && !agent.moving && view.actions.has('CarryIdle')) action = 'CarryIdle';
-      this.playAction(view, action);
-      const active = view.actions.get(action);
-      if (active && ['Interact', 'Push', 'Fall', 'Recover'].includes(action)) {
-        const duration = action === 'Interact' ? agent.interaction?.duration || .65 : action === 'Push' ? .48 : action === 'Recover' ? .65 : 1.1;
-        active.setEffectiveTimeScale(active.getClip().duration / duration);
-      }
-      if (['Run', 'Carry'].includes(action)) {
-        const speed = Math.min(4.5, distance / Math.max(.001, dt));
-        const strideSpeed = action === 'Carry' ? .78 : 1.4;
-        view.actions.get(action)?.setEffectiveTimeScale(agent.moving ? THREE.MathUtils.clamp(speed / strideSpeed, .55, 3.2) : 0);
-      }
-      view.mixer.update(dt); view.root.updateMatrixWorld(true);
+      const cup = agent.cupId && this.state?.cups?.find(cup => cup.id === agent.cupId);
+      view.mascot.update(dt, this.time, agent, this.state?.phase, cup);
+      view.root.updateMatrixWorld(true);
       view.label.sprite.position.y = agent.fallen ? 1.05 : 2.14;
       if (id === this.selected && this.selection) this.selection.position.set(agent.x, .04, agent.z);
     }
@@ -361,16 +332,16 @@ export class CoffeeScene {
       const holder = cup.holderId && this.characters.get(cup.holderId);
       if (holder?.socket) {
         holder.socket.getWorldPosition(root.position); root.rotation.set(0, holder.root.rotation.y, 0);
-        if (root.userData.attach) {
-          const progress = Math.min(1, (now - root.userData.attach.at) / 150);
-          root.position.lerpVectors(root.userData.attach.from, root.position.clone(), 1 - (1 - progress) ** 3);
-          if (progress >= 1) root.userData.attach = null;
-        }
       } else {
         root.position.set(cup.x, cup.y, cup.z);
         const quaternion = cup.rotation || cup.quaternion;
         if (quaternion) root.quaternion.set(quaternion.x, quaternion.y, quaternion.z, quaternion.w);
         else root.rotation.set(0, 0, 0);
+      }
+      if (root.userData.attach) {
+        const progress = Math.min(1, (now - root.userData.attach.at) / 150);
+        root.position.lerpVectors(root.userData.attach.from, root.position.clone(), 1 - (1 - progress) ** 3);
+        if (progress >= 1) root.userData.attach = null;
       }
     }
     for (const chair of this.chairs.values()) {
@@ -432,7 +403,8 @@ export class CoffeeScene {
   disposeAsset(root) { root.traverse(object => { object.geometry?.dispose(); for (const material of object.material ? Array.isArray(object.material) ? object.material : [object.material] : []) { material.map?.dispose(); material.dispose(); } }); }
   dispose() {
     this.disposed = true; this.renderer.setAnimationLoop(null); this.resizeObserver.disconnect(); this.renderer.domElement.removeEventListener('pointerup', this.onPointer);
-    for (const view of this.characters.values()) { view.mixer.stopAllAction(); view.mixer.uncacheRoot(view.model); }
+    for (const view of this.characters.values()) view.mascot.dispose();
+    this.disposeAsset(this.mugAsset || new THREE.Group());
     const geometries = new Set(); this.scene.traverse(object => { if (object.geometry) geometries.add(object.geometry); }); for (const geometry of geometries) geometry.dispose();
     for (const material of this.materials) material.dispose(); for (const texture of this.textures) texture.dispose();
     this.audio.dispose(); this.renderer.dispose(); this.renderer.domElement.remove();

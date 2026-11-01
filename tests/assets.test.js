@@ -36,10 +36,10 @@ test('production assets negotiate Brotli/gzip, report decoded sizes, and preserv
   const directory = await mkdtemp(path.join(tmpdir(), 'coffee-assets-'));
   let server;
   try {
-    await copyFile(new URL('character.glb', source), path.join(directory, 'character.glb'));
+    await copyFile(new URL('chair.glb', source), path.join(directory, 'chair.glb'));
     const stats = await prepareAssets(directory);
     assert.ok(stats.downloadBytes < stats.sourceBytes);
-    const original = await readFile(path.join(directory, 'character.glb'));
+    const original = await readFile(path.join(directory, 'chair.glb'));
     const app = express();
     app.use(compressedModels(directory)); app.use(express.static(directory));
     server = app.listen(0, '127.0.0.1');
@@ -47,7 +47,7 @@ test('production assets negotiate Brotli/gzip, report decoded sizes, and preserv
     const port = server.address().port;
     function request(encoding, extra = {}) {
       return new Promise((resolve, reject) => {
-        get({ hostname: '127.0.0.1', port, path: '/character.glb', headers: { 'Accept-Encoding': encoding, ...extra } }, response => {
+        get({ hostname: '127.0.0.1', port, path: '/chair.glb', headers: { 'Accept-Encoding': encoding, ...extra } }, response => {
           const chunks = []; response.on('data', chunk => chunks.push(chunk));
           response.on('end', () => resolve({ status: response.statusCode, headers: response.headers, body: Buffer.concat(chunks) }));
         }).on('error', reject);

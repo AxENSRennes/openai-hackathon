@@ -26,17 +26,17 @@ PORT=5180 NODE_ENV=production npm start
 The production-mode local server needs a prior `npm run build`. Development mode works too. Connect an agent using the CLI:
 
 ```sh
-GAME_URL=http://localhost:5180 node scripts/agent-client.mjs claim pip 'Deliver a coffee carefully.'
-GAME_URL=http://localhost:5180 node scripts/agent-client.mjs observe pip
+GAME_URL=http://localhost:5180 node scripts/agent-client.mjs claim astra 'Deliver a coffee carefully.'
+GAME_URL=http://localhost:5180 node scripts/agent-client.mjs observe astra
 ```
 
 Start the race in the browser, then submit explicit commands:
 
 ```sh
-GAME_URL=http://localhost:5180 node scripts/agent-client.mjs command pip '{"type":"move","x":-1,"z":0,"durationMs":800,"pace":"careful"}'
-GAME_URL=http://localhost:5180 node scripts/agent-client.mjs command pip '{"type":"look","heading":3.14159}'
-GAME_URL=http://localhost:5180 node scripts/agent-client.mjs instruct pip 'Wait here.'
-GAME_URL=http://localhost:5180 node scripts/agent-client.mjs release pip
+GAME_URL=http://localhost:5180 node scripts/agent-client.mjs command astra '{"type":"move","x":-1,"z":0,"durationMs":800,"pace":"careful"}'
+GAME_URL=http://localhost:5180 node scripts/agent-client.mjs command astra '{"type":"look","heading":3.14159}'
+GAME_URL=http://localhost:5180 node scripts/agent-client.mjs instruct astra 'Wait here.'
+GAME_URL=http://localhost:5180 node scripts/agent-client.mjs release astra
 ```
 
 The CLI stores the per-runner game token under ignored `.coffee-agent/<host>/`, with restricted filesystem permissions. It waits for command completion and reports the actual result, including failures and cancellations. A coding agent can call the CLI through its shell tool or import `GameAgentClient` from `scripts/agent-client.mjs`. This transport does not itself start Codex or write a character's policy: the connected coding agent supplies its own decisions or code.
