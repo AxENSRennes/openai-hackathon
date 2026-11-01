@@ -4,6 +4,8 @@ Six agents. One coffee machine. Questionable coordination.
 
 A browser-based 3D office race with a shared live broadcast and phone betting. Employees collect a cup, queue for coffee, push and steal, slip on spills, and try to deliver a cup at least **55% full** to their own desk. The first valid delivery wins.
 
+The paragraph above describes the current prototype. The selected next-version target is a Level 4 commercial indie vertical slice with one shared customer, defined in [QUALITY_BAR.md](QUALITY_BAR.md) and [DESIGN.md](DESIGN.md). These documents set the ambition; the prototype does not yet meet that bar.
+
 ## Run
 
 Requires Node.js 22.12 or later.
