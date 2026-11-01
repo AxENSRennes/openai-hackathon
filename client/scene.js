@@ -10,6 +10,10 @@ export class CoffeeScene {
     this.container = container; this.disposed = false; this.mode = 'overview'; this.selected = 'pip'; this.state = null;
     this.characters = new Map(); this.puddles = new Map(); this.chairs = new Map(); this.particles = []; this.popups = []; this.seenEvents = new Set(); this.lastRound = null;
     this.materials = new Map(); this.textures = []; this.t = 0;
+    this.motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    this.reducedMotion = this.motionQuery.matches;
+    this.onMotionChange = event => { this.reducedMotion = event.matches; };
+    this.motionQuery.addEventListener('change', this.onMotionChange);
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color('#e9ecdf');
     this.scene.fog = new THREE.Fog('#e9ecdf', 52, 95);
@@ -32,7 +36,7 @@ export class CoffeeScene {
     sun.shadow.radius = 4; this.scene.add(sun);
     const fill = new THREE.DirectionalLight('#e8f2ff', 1.1); fill.position.set(16, 9, -15); this.scene.add(fill);
     this.world = new THREE.Group(); this.scene.add(this.world);
-    this.buildRoom(); this.buildKitchen(); this.buildOffice(); this.buildDetails();
+    this.buildRoom(); this.buildKitchen(); this.buildOffice(); this.buildDetails(); this.buildCameo();
     this.steam = [];
     for(let i=0;i<7;i++) {
       const sprite = new THREE.Sprite(new THREE.SpriteMaterial({map:this.softTexture(),color:'#fff9eb',opacity:.25,transparent:true,depthWrite:false}));
@@ -224,6 +228,199 @@ export class CoffeeScene {
       const paper=this.box(2.1+i*.24,.08,1.8+i*.16,.38,.015,.5,'#f7f0dc',this.world,.005);paper.rotation.y=i*.4;
     }
   }
+  buildCameo() {
+    const root = this.group();
+    root.visible = false;
+    root.rotation.y = Math.atan2(this.camera.position.x, this.camera.position.z);
+    this.cameo = {
+      root,
+      current: null,
+      assetUrl: null,
+      effectKey: '',
+      parkX: -6.4,
+      startX: -4.8,
+      z: -2.2,
+    };
+
+    this.cylinder(0, .09, 0, .36, .42, .18, COLORS.wood, root);
+    this.cylinder(0, .47, 0, .1, .14, .72, COLORS.dark, root);
+    this.box(0, 1.57, 0, 1.48, 1.88, .17, COLORS.dark, root, .08);
+    this.box(0, 1.59, .095, 1.24, 1.42, .025, '#a6b797', root, .04);
+    this.box(0, .89, .095, 1.24, .25, .035, COLORS.gold, root, .035);
+
+    const photoMaterial = new THREE.MeshStandardMaterial({
+      color: '#f2e3c6',
+      roughness: .9,
+      side: THREE.DoubleSide,
+    });
+    const photo = new THREE.Mesh(new THREE.PlaneGeometry(1.18, 1.18), photoMaterial);
+    photo.position.set(0, 1.67, .116);
+    photo.visible = false;
+    root.add(photo);
+    const tintMaterial = new THREE.MeshBasicMaterial({
+      color: '#d99058',
+      transparent: true,
+      opacity: .11,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const tint = new THREE.Mesh(new THREE.PlaneGeometry(1.18, 1.18), tintMaterial);
+    tint.position.set(0, 1.67, .122);
+    tint.visible = false;
+    root.add(tint);
+
+    const fallback = this.group(0, 0, 0, root);
+    this.box(0, 1.67, .108, 1.19, 1.19, .012, '#9eaf8c', fallback, .03);
+    const jacket = this.mesh(new THREE.CapsuleGeometry(.2, .35, 4, 10), '#d87552', fallback);
+    jacket.position.set(0, 1.26, .2);
+    const head = this.sphere(0, 1.76, .2, .25, '#e5b88f', fallback, 1, 1.05, .9);
+    head.rotation.z = -.08;
+    this.sphere(0, 1.91, .17, .255, COLORS.dark, fallback, 1.08, .56, .96);
+    this.box(0, 1.77, .412, .43, .13, .045, '#3b4939', fallback, .035);
+    for (const x of [-.105, .105]) {
+      this.sphere(x, 1.775, .44, .047, COLORS.white, fallback, .95, 1, .7);
+      this.sphere(x, 1.775, .475, .021, COLORS.dark, fallback, 1, 1, .7);
+    }
+    this.sphere(-.265, 1.76, .2, .07, '#e5b88f', fallback);
+    this.sphere(.265, 1.76, .2, .07, '#e5b88f', fallback);
+    const armLeft = this.mesh(new THREE.CapsuleGeometry(.075, .22, 4, 8), '#d87552', fallback);
+    armLeft.position.set(-.28, 1.3, .2);
+    armLeft.rotation.z = -.55;
+    const armRight = this.mesh(new THREE.CapsuleGeometry(.075, .22, 4, 8), '#d87552', fallback);
+    armRight.position.set(.28, 1.34, .2);
+    armRight.rotation.z = .55;
+    this.cup(.39, 1.16, .28, COLORS.white, fallback, .58);
+    for (const x of [-.1, .1]) {
+      this.mesh(new THREE.CapsuleGeometry(.065, .2, 4, 8), COLORS.dark, fallback).position.set(x, .91, .2);
+      this.box(x, .79, .27, .18, .07, .23, COLORS.cream, fallback, .025);
+    }
+    fallback.visible = true;
+    const photoLabel = this.text('THE RASCAL', { color: COLORS.dark, size: .19, width: 384, height: 100, font: 42 });
+    photoLabel.position.set(0, .89, .12);
+    root.add(photoLabel);
+
+    const effectCanvas = document.createElement('canvas');
+    effectCanvas.width = 640;
+    effectCanvas.height = 140;
+    const effectTexture = new THREE.CanvasTexture(effectCanvas);
+    effectTexture.colorSpace = THREE.SRGBColorSpace;
+    this.textures.push(effectTexture);
+    const effectMaterial = new THREE.MeshBasicMaterial({
+      map: effectTexture,
+      transparent: true,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    const effectBadge = new THREE.Mesh(new THREE.PlaneGeometry(1.75, .38), effectMaterial);
+    effectBadge.position.set(0, 2.66, .105);
+    effectBadge.visible = false;
+    root.add(effectBadge);
+
+    this.cameo.photo = photo;
+    this.cameo.photoMaterial = photoMaterial;
+    this.cameo.tint = tint;
+    this.cameo.fallback = fallback;
+    this.cameo.effectCanvas = effectCanvas;
+    this.cameo.effectTexture = effectTexture;
+    this.cameo.effectBadge = effectBadge;
+    this.cameo.effectKey = null;
+  }
+  updateCameo(state) {
+    const current = state.cameo?.current || null;
+    this.cameo.current = current;
+    this.cameo.root.visible = Boolean(current);
+    this.loadCameoPhoto(current?.assetUrl || null);
+    this.updateCameoEffect(current?.effect || null);
+  }
+  loadCameoPhoto(assetUrl) {
+    if (assetUrl === this.cameo.assetUrl) return;
+    this.cameo.assetUrl = assetUrl;
+    const oldTexture = this.cameo.photoMaterial.map;
+    if (oldTexture) {
+      this.textures = this.textures.filter(texture => texture !== oldTexture);
+      oldTexture.dispose();
+    }
+    this.cameo.photoMaterial.map = null;
+    this.cameo.photoMaterial.needsUpdate = true;
+    this.cameo.photo.visible = false;
+    this.cameo.tint.visible = false;
+    this.cameo.fallback.visible = true;
+    if (!assetUrl) return;
+
+    new THREE.TextureLoader().load(assetUrl, texture => {
+      if (this.disposed || this.cameo.assetUrl !== assetUrl) {
+        texture.dispose();
+        return;
+      }
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.anisotropy = 4;
+      this.textures.push(texture);
+      this.cameo.photoMaterial.map = texture;
+      this.cameo.photoMaterial.needsUpdate = true;
+      this.cameo.photo.visible = true;
+      this.cameo.tint.visible = true;
+      this.cameo.fallback.visible = false;
+    }, undefined, () => {
+      if (!this.disposed && this.cameo.assetUrl === assetUrl) {
+        this.cameo.photo.visible = false;
+        this.cameo.tint.visible = false;
+        this.cameo.fallback.visible = true;
+      }
+    });
+  }
+  updateCameoEffect(effect) {
+    if (!effect) {
+      this.cameo.effectKey = null;
+      this.cameo.effectBadge.visible = false;
+      return;
+    }
+    const key = `${effect.outcome}:${effect.spill?.runnerId || ''}:${effect.spill?.coffeePoints || 0}:${effect.delaySeconds || 0}`;
+    if (key === this.cameo.effectKey) return;
+    this.cameo.effectKey = key;
+
+    const runner = RUNNERS.find(item => item.id === effect.spill?.runnerId);
+    const points = effect.spill?.coffeePoints ? Math.round(effect.spill.coffeePoints) : 0;
+    const label = effect.outcome === 'both'
+      ? effect.spill && runner
+        ? `BOTH: ${runner.name.toUpperCase()} -${points}% + 3S`
+        : 'SPILL MISSED + 3S DELAY'
+      : effect.outcome === 'delay'
+        ? 'MACHINE DELAY + 3S'
+        : effect.spill && runner
+          ? `SPILL: ${runner.name.toUpperCase()} -${points}%`
+          : 'SPILL MISSED';
+    const context = this.cameo.effectCanvas.getContext('2d');
+    context.clearRect(0, 0, 640, 140);
+    context.fillStyle = '#d87552';
+    context.beginPath();
+    context.roundRect(6, 6, 628, 128, 24);
+    context.fill();
+    context.fillStyle = COLORS.white;
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.font = '800 48px Arial, sans-serif';
+    context.fillText(label, 320, 70, 590);
+    this.cameo.effectTexture.needsUpdate = true;
+    this.cameo.effectBadge.visible = true;
+  }
+  animateCameo() {
+    const current = this.cameo.current;
+    if (!current) return;
+    const root = this.cameo.root;
+    const progress = clamp((current.phaseElapsedMs || 0) / 1000, 0, 1);
+    const eased = progress * progress * (3 - 2 * progress);
+    let x = this.cameo.parkX;
+    if (!this.reducedMotion && current.phase === 'entering') {
+      x = this.cameo.startX + (this.cameo.parkX - this.cameo.startX) * eased;
+    } else if (!this.reducedMotion && current.phase === 'leaving') {
+      x = this.cameo.parkX + (this.cameo.startX - this.cameo.parkX) * eased;
+    }
+    root.position.set(x, 0, this.cameo.z);
+    if (!this.reducedMotion && current.phase === 'causing-effect') {
+      root.position.y = .025 + Math.sin(this.t * 7) * .025;
+    }
+    root.scale.setScalar(!this.reducedMotion && current.phase === 'entering' ? .96 + eased * .04 : 1);
+  }
   makeCharacter(runner,index) {
     const root=this.group();const body=this.group(0,0,0,root);
     const ring=this.mesh(new THREE.CircleGeometry(.35,32),runner.color,root);ring.rotation.x=-Math.PI/2;ring.position.y=.065;ring.material=this.material(runner.color,{transparent:true,opacity:.3,depthWrite:false});
@@ -286,8 +483,10 @@ export class CoffeeScene {
     if(!state)return;this.state=state;
     if(this.lastRound!==state.round){
       this.lastRound=state.round;this.seenEvents.clear();
+      for(const event of state.events||[])if(event.type==='cameo')this.seenEvents.add(event.id);
       for(const p of this.puddles.values()){this.world.remove(p);p.geometry.dispose();p.material.dispose();}this.puddles.clear();
     }
+    this.updateCameo(state);
     for(const agent of state.agents||[]) {
       const char=this.characters.get(agent.id);if(!char)continue;
       char.target=agent;this.updateLabel(char,agent);
@@ -311,6 +510,12 @@ export class CoffeeScene {
     for(const prop of state.props||[]){const chair=this.chairs.get(prop.id);if(chair)chair.userData.target=prop;}
     for(const event of state.events||[]) {
       if(this.seenEvents.has(event.id))continue;this.seenEvents.add(event.id);
+      if(event.type==='cameo') {
+        const spill=event.effect?.spill;
+        const target=spill?this.characters.get(spill.runnerId):null;
+        if(target){this.burst(target.root.position,COLORS.coffee);this.popup(target.root.position,'cameo-spill');}
+        if(event.effect?.delaySeconds){this.burst(new THREE.Vector3(MAP.machine.x,.7,MAP.machine.z),'#d87552');this.popup(new THREE.Vector3(MAP.machine.x,0,MAP.machine.z),'cameo-delay');}
+      }
       if(['spill','fall','steal','push'].includes(event.type)){
         const char=this.characters.get(event.actorId);
         if(char){this.burst(char.root.position,event.type==='steal'?'#e0bb57':COLORS.coffee);this.popup(char.root.position,event.type);}
@@ -325,7 +530,7 @@ export class CoffeeScene {
     }
   }
   popup(position,type) {
-    const labels={steal:'COFFEE HEIST!',fall:'FLOOR MEETING',spill:'SPILLED IT!',push:'EXCUSE ME!'};
+    const labels={steal:'COFFEE HEIST!',fall:'FLOOR MEETING',spill:'SPILLED IT!',push:'EXCUSE ME!','cameo-spill':'SPLASHED!','cameo-delay':'MACHINE JAMMED!'};
     const plane=this.text(labels[type]||'WHOOPS',{background:type==='steal'?'#dfec81':'#e99163',color:'#293e33',size:.4,width:512,height:100,font:47});
     this.textures=this.textures.filter(texture=>texture!==plane.material.map);
     const sprite=new THREE.Sprite(new THREE.SpriteMaterial({map:plane.material.map,transparent:true,depthTest:false}));
@@ -404,6 +609,7 @@ export class CoffeeScene {
       p.life-=dt;p.sprite.position.y+=dt*.25;p.sprite.material.opacity=Math.min(1,p.life*2);
       if(p.life<=0){this.world.remove(p.sprite);p.sprite.material.map.dispose();p.sprite.material.dispose();return false;}return true;
     });
+    this.animateCameo();
     const aspect=this.container.clientWidth/Math.max(1,this.container.clientHeight);
     if(this.mode==='track'){
       const char=this.characters.get(this.selected);if(char){this.target.lerp(new THREE.Vector3(char.root.position.x,.5,char.root.position.z),1-Math.exp(-dt*3));}
@@ -416,8 +622,10 @@ export class CoffeeScene {
   }
   dispose() {
     this.disposed=true;this.renderer.setAnimationLoop(null);this.resizeObserver.disconnect();
+    this.motionQuery.removeEventListener('change', this.onMotionChange);
     this.renderer.domElement.removeEventListener('pointerup',this.onPointer);
     this.scene.traverse(object=>{object.geometry?.dispose();if(object.material?.map)object.material.map.dispose();});
+    this.cameo.photoMaterial.dispose();this.cameo.tint.material.dispose();this.cameo.effectBadge.material.dispose();
     for(const m of this.materials.values())m.dispose();for(const texture of this.textures)texture.dispose();
     this.renderer.dispose();this.renderer.domElement.remove();
   }

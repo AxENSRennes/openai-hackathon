@@ -27,6 +27,9 @@ Implementation spec: [Coffee Run Cameo Implementation Spec](https://linear.app/t
 - [Define betting and result handling for cameo events](tickets/betting-outcomes.md): bets stay locked at race start; cameo effects can influence race state but not winner rules or payouts, and a timed-out draw refunds every wager.
 - [Specify cameo staging and event messaging](tickets/cameo-staging.md): each visit uses a five-second enter/effect/escape beat, one stable-ID incident, optional sound, and no catch or collision.
 - [Define the cameo asset and simulation seam](tickets/asset-pipeline.md): upload a bounded, browser-normalized WebP over HTTP into ephemeral server memory; a server-side director owns queue and effects while clients only present snapshots.
+- [Implement authoritative cameo scheduling and effects](https://linear.app/tsaimc2/issue/TSA-86/implement-authoritative-cameo-scheduling-and-effects): the server owns serialized visits, authoritative phases and outcomes, stable incidents, simulation effects, and race cleanup.
+- [Add bounded photo upload and ephemeral cameo assets](https://linear.app/tsaimc2/issue/TSA-89/add-bounded-photo-upload-and-ephemeral-cameo-assets): host uploads are validated and served same-origin from ephemeral memory, with assets released after visits or resets.
+- [Render the cameo in the 3D office scene](https://linear.app/tsaimc2/issue/TSA-88/render-the-cameo-in-the-3d-office-scene): the broadcast scene presents uploaded photos or the procedural preset near the coffee machine, uses authoritative phase state, and visibly signals spill and delay effects without replaying old reactions.
 
 ## Not yet specified
 
@@ -41,7 +44,4 @@ Implementation spec: [Coffee Run Cameo Implementation Spec](https://linear.app/t
 
 ## Frontier
 
-- [Implement authoritative cameo scheduling and effects](https://linear.app/tsaimc2/issue/TSA-86/implement-authoritative-cameo-scheduling-and-effects)
-- [Add bounded photo upload and ephemeral cameo assets](https://linear.app/tsaimc2/issue/TSA-89/add-bounded-photo-upload-and-ephemeral-cameo-assets)
 - [Add host cameo controls and phone status](https://linear.app/tsaimc2/issue/TSA-87/add-host-cameo-controls-and-phone-status)
-- [Render the cameo in the 3D office scene](https://linear.app/tsaimc2/issue/TSA-88/render-the-cameo-in-the-3d-office-scene)
