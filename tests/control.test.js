@@ -53,11 +53,11 @@ test('socket controllers have exclusive ownership, racing-only input, stale stop
       return client;
     }
     const first = await connect(), second = await connect();
-    assert.deepEqual(await acknowledge(first.socket, 'agent:control', { id: 'pip', enabled: true }), { ok: true, agentId: 'pip' });
-    assert.equal((await acknowledge(second.socket, 'agent:control', { id: 'pip', enabled: true })).ok, false);
-    assert.deepEqual(await acknowledge(first.socket, 'agent:control', { id: 'gary', enabled: true }), { ok: true, agentId: 'gary' });
-    assert.equal((await acknowledge(second.socket, 'agent:control', { id: 'pip', enabled: true })).ok, true, 'Switching releases the previous runner');
-    const agent = () => first.state.agents.find(a => a.id === 'gary');
+    assert.deepEqual(await acknowledge(first.socket, 'agent:control', { id: 'astra', enabled: true }), { ok: true, agentId: 'astra' });
+    assert.equal((await acknowledge(second.socket, 'agent:control', { id: 'astra', enabled: true })).ok, false);
+    assert.deepEqual(await acknowledge(first.socket, 'agent:control', { id: 'argon', enabled: true }), { ok: true, agentId: 'argon' });
+    assert.equal((await acknowledge(second.socket, 'agent:control', { id: 'astra', enabled: true })).ok, true, 'Switching releases the previous runner');
+    const agent = () => first.state.agents.find(a => a.id === 'argon');
     const beforeRace = agent().x;
     first.socket.emit('agent:input', { x: 1, z: 0 }); await pause(150);
     assert.equal(agent().x, beforeRace, 'Choosing a runner before the race does not move them');
@@ -67,11 +67,11 @@ test('socket controllers have exclusive ownership, racing-only input, stale stop
     await pause(750); const stopped = agent().x; await pause(350);
     assert.ok(Math.abs(agent().x - stopped) < .035, 'Expired movement packets must stop a controlled runner');
     first.socket.disconnect();
-    await until(() => !second.state.agents.find(a => a.id === 'gary').controlled);
-    assert.equal((await acknowledge(second.socket, 'agent:control', { id: 'gary', enabled: true })).ok, true, 'A disconnected controller cannot retain ownership');
+    await until(() => !second.state.agents.find(a => a.id === 'argon').controlled);
+    assert.equal((await acknowledge(second.socket, 'agent:control', { id: 'argon', enabled: true })).ok, true, 'A disconnected controller cannot retain ownership');
     assert.deepEqual(await acknowledge(second.socket, 'agent:control', { enabled: false }), { ok: true, agentId: null });
-    assert.equal(second.state.agents.find(a => a.id === 'gary').controlled, false);
-    assert.equal((await acknowledge(second.socket, 'agent:control', { id: 'gary', enabled: true })).ok, true);
+    assert.equal(second.state.agents.find(a => a.id === 'argon').controlled, false);
+    assert.equal((await acknowledge(second.socket, 'agent:control', { id: 'argon', enabled: true })).ok, true);
   } finally {
     child.kill('SIGTERM');
     let timer;

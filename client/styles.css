@@ -64,8 +64,14 @@ fieldset { margin: 0; border: 0; padding: 0; min-width: 0; }
 .connection { display: inline-flex; align-items: center; gap: 6px; font-size: 10px; font-weight: 800; white-space: nowrap; }
 .connection i { display: block; width: 7px; height: 7px; background: #d4ed89; border: 1px solid #47613d; border-radius: 50%; }
 .connection.is-offline i { background: #f49a61; }
-.runner-deck { min-width: 0; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 7px; width: 100%; max-width: 1170px; }
-.runner-chip { min-width: 0; position: relative; display: flex; align-items: center; gap: 6px; min-height: 78px; padding: 8px 8px 11px 3px; border: 2px solid var(--ink); border-bottom-width: 4px; border-radius: 12px 12px 16px 16px; background: #fff6e9; text-align: left; box-shadow: 0 4px 0 #172d253d; }
+.runner-deck { min-width: 0; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 7px; width: 100%; max-width: 1250px; }
+.runner-chip { min-width: 0; position: relative; display: grid; grid-template-columns: 35px minmax(0, 1fr); align-items: center; gap: 1px 4px; min-height: 78px; padding: 8px 5px 11px 3px; border: 2px solid var(--ink); border-bottom-width: 4px; border-radius: 12px 12px 16px 16px; background: #fff6e9; text-align: left; box-shadow: 0 4px 0 #172d253d; }
+.runner-chip .portrait { grid-row: 1 / 3; width: 38px; height: 63px; }
+.runner-chip .portrait img { object-fit: cover; object-position: center top; }
+.runner-chip .chip-copy > strong { font-size: clamp(14px, 1.3vw, 19px); white-space: nowrap; }
+.runner-chip .cup-readout { grid-column: 2; flex-direction: row; gap: 3px; width: auto; margin: 0; }
+.runner-chip .cup-readout svg { width: 17px; height: 19px; }
+.runner-chip .cup-readout strong { font-size: 13px; }
 .runner-chip:before { content: ''; width: 100%; height: 6px; position: absolute; left: 0; bottom: 0; background: var(--runner); border-radius: 0 0 10px 10px; }
 .runner-chip:hover { background: #fffef2; transform: translateY(-3px); }
 .runner-chip.is-selected { outline: 3px solid var(--runner); outline-offset: 3px; background: #fffef2; }
@@ -285,7 +291,13 @@ fieldset { margin: 0; border: 0; padding: 0; min-width: 0; }
   .round-clock > svg { display: none; }
   .round-clock strong { font-size: 31px; }
   .round-clock small { font-size: 8px; }
-  .runner-deck { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px 7px; }
+  .runner-deck { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px 7px; }
+  .runner-chip { grid-template-columns: 1fr; justify-items: center; }
+  .runner-chip .portrait { grid-row: auto; width: 38px; height: 38px; margin: -8px 0 -1px; }
+  .runner-chip .chip-copy > strong { font-size: 16px; }
+  .runner-chip .chip-copy > span { display: none; }
+  .runner-chip .cup-readout { grid-column: 1; }
+  .runner-chip .runner-index { top: 4px; bottom: auto; left: 4px; width: 16px; height: 15px; font-size: 9px; }
   .runner-chip { min-height: 72px; border-radius: 10px 10px 13px 13px; gap: 3px; padding: 7px 5px 10px 3px; }
   .chip-copy > strong { font-size: 21px; }
   .chip-copy > span { font-size: 8px; }

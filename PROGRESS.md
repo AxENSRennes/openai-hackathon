@@ -1,8 +1,41 @@
 # Coffee Run implementation status
 
+## Seven-mascot integration
+
+The working branch `codex/integrate-seven-mascots` replaces the six employees
+with Astra, Opus, Grokbot, Argon, DeepSeek, Kimi, and Mistral from PR #3. Their
+original meshes, palettes, names, and seven procedural poses are preserved.
+Seven physical runners, spawn positions, portraits, selection, direct control,
+agent controllers, and phone wagering use the same identity catalog.
+
+The renderer combines the original run and carry poses, adds reaching, grounded
+falls and recovery, responds to authoritative cup slosh, and uses the original
+victory pose after delivery. Decorative mascot cups stay hidden; a separate
+persistent takeaway cup follows the hand socket. Fixed mesh parts are merged by
+material while preserving the original triangle count and vertex bounds. The
+software renderer limits rendering to 24 FPS to leave time for control input.
+Unused employee GLBs, old portraits, and their Blender generation code are retired;
+the office environment and chairs retain their existing Blender workflow.
+
+Validation on 2026-11-01: all 51 Node tests pass and the Vite production build
+succeeds. Browser checks cover all seven selections and control claims, six
+viewport widths from 320 to 1440 pixels, a confirmed Mistral phone wager, and nine
+pose fixtures rendered for every mascot. The renderer reports no page errors or
+failed asset requests. A wall-clock external HTTP controller completed pickup,
+unattended brewing, recovery, and delivery in 36.23 seconds using 63 explicit
+commands, retaining 100% coffee. A real browser keyboard round also completed
+pickup, unattended brewing, recovery, and delivery in 59.08 seconds. That keyboard
+check renders real-state frames at checkpoints to isolate keyboard mechanics from
+software-GPU throughput; the separate nine-pose review runs continuous rendering.
+Reports and captures are under ignored
+`test-results/mascots/`, `test-results/controls/`, and `test-results/agent/`.
+Pose fixtures assess rendering;
+they do not establish autonomous decision quality or real GPU performance.
+These changes have not been deployed.
+
 ## Release target
 
-The current release combines the rebuilt office arena, authored employee assets and animations, fullscreen HUD, camera and audio controls, phone betting, direct keyboard control, and explicit agent command execution. Release changes are integrated into `main`, which triggers the GitHub Actions deployment workflow for `coffee-run.service` on port 5173. Development runs separately on port 5174. Other VPS applications must remain untouched.
+The baseline release combines the rebuilt office arena, authored employee assets and animations, fullscreen HUD, camera and audio controls, phone betting, direct keyboard control, and explicit agent command execution. Release changes are integrated into `main`, which triggers the GitHub Actions deployment workflow for `coffee-run.service` on port 5173. Development runs separately on port 5174. Other VPS applications must remain untouched.
 
 ## Agent behavior
 

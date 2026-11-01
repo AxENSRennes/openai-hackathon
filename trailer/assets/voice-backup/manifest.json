@@ -1,0 +1,99 @@
+{
+  "jobId": "coffee-run-trailer-v1",
+  "model": "BreezeBlue/Breeze-TTS-2",
+  "runtime": "Breeze-TTS-2.cpp Q8 CPU",
+  "voiceReference": "voice-test-british.wav",
+  "segments": [
+    {
+      "id": "intro",
+      "startSeconds": 0.35,
+      "maxDurationSeconds": 5.2,
+      "text": "Your agents write your code. Fix your bugs. Ship your app.",
+      "direction": "Three assured statements. Brief natural pauses. Build quiet confidence.",
+      "filename": "audio/intro.wav",
+      "durationSeconds": 4.88,
+      "sampleRate": 24000,
+      "channels": 1,
+      "sha256": "4f5e11cff30d7d4be6c2e1ddce13cd6d8df070278ff0c770627c89ca035ff1a0",
+      "generationSeconds": 50.47
+    },
+    {
+      "id": "question",
+      "startSeconds": 6.2,
+      "maxDurationSeconds": 3.4,
+      "text": "But can they bring you a coffee?",
+      "direction": "A genuine, understated question. Let coffee land. No exaggerated comic voice.",
+      "filename": "audio/question.wav",
+      "durationSeconds": 1.76,
+      "sampleRate": 24000,
+      "channels": 1,
+      "sha256": "dbfcb9c458264962a2dd2c1bfe01ee36e0f314c46b22373805ebf3d0e1e5ef8e",
+      "generationSeconds": 26.61
+    },
+    {
+      "id": "bodies",
+      "startSeconds": 10.3,
+      "maxDurationSeconds": 4.3,
+      "text": "So we gave them bodies. And one simple task.",
+      "direction": "Treat this like a historic product announcement. Small pause between sentences.",
+      "filename": "audio/bodies.wav",
+      "durationSeconds": 3.6,
+      "sampleRate": 24000,
+      "channels": 1,
+      "sha256": "5c2d60838e8014e56d2be2440213b4151e5f893dafb37cd7cebe4f01a2b0f649",
+      "generationSeconds": 38.2
+    },
+    {
+      "id": "stakes",
+      "startSeconds": 15.25,
+      "maxDurationSeconds": 5.3,
+      "text": "Seven agents. One coffee. What could possibly go wrong?",
+      "direction": "Calm confidence. Slightly inquisitive ending. Do not telegraph the coming crash.",
+      "filename": "audio/stakes.wav",
+      "durationSeconds": 4.4,
+      "sampleRate": 24000,
+      "channels": 1,
+      "sha256": "078ab1a44b90e5a79f8c230d8964bbdeb57617c428d4ace712f357de0b70157d",
+      "generationSeconds": 45.28
+    },
+    {
+      "id": "overengineered",
+      "startSeconds": 27.25,
+      "maxDurationSeconds": 3.5,
+      "text": "We may have over-engineered this.",
+      "direction": "A quiet, matter-of-fact admission after a catastrophe. Restrained and dry.",
+      "filename": "audio/overengineered.wav",
+      "durationSeconds": 1.6,
+      "sampleRate": 24000,
+      "channels": 1,
+      "sha256": "40b3187ee96a81e2ad5d9ab406808fc06c94478bf93821dd95a9343346191690",
+      "generationSeconds": 32.34
+    },
+    {
+      "id": "instructions",
+      "startSeconds": 32.15,
+      "maxDurationSeconds": 4.8,
+      "text": "Give yours instructions. Back your favourite.",
+      "direction": "Warm invitation. Two short, clear phrases.",
+      "filename": "audio/instructions.wav",
+      "durationSeconds": 2.88,
+      "sampleRate": 24000,
+      "channels": 1,
+      "sha256": "f92294b263dd66392f91c74ff8478000ccbd4e7f1d688be4d401c58eff4af4f0",
+      "generationSeconds": 34.76
+    },
+    {
+      "id": "tagline",
+      "startSeconds": 37.8,
+      "maxDurationSeconds": 4.0,
+      "text": "Coffee Run. Artificial intelligence. Questionable coordination.",
+      "direction": "Clean brand sign-off. Pause after Coffee Run. Keep Questionable coordination completely serious.",
+      "filename": "audio/tagline.wav",
+      "durationSeconds": 4.56,
+      "sampleRate": 24000,
+      "channels": 1,
+      "sha256": "0b040b646c28743b39b44c8e778ce3342ad0e8537689033ca364470ff2806f8a",
+      "generationSeconds": 71.21
+    }
+  ]
+}

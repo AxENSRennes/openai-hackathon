@@ -1,6 +1,6 @@
 # Coffee Run
 
-Six agent-controlled colleagues compete to deliver one coffee to one waiting customer with at least **55% remaining**. Agents explicitly choose every movement and interaction. The kitchen, equipment, routes, furniture, and persistent mugs are shared. Spectators join on their phones and bet virtual coins.
+Seven agent-controlled mascots compete to deliver one coffee to one waiting customer with at least **55% remaining**. Agents explicitly choose every movement and interaction. The kitchen, equipment, routes, furniture, and persistent mugs are shared. Spectators join on their phones and bet virtual coins.
 
 The rebuild targets the commercial indie vertical slice defined in [QUALITY_BAR.md](QUALITY_BAR.md). Feature presence alone does not establish that quality. Current implementation and remaining gaps are recorded in [PROGRESS.md](PROGRESS.md).
 
@@ -19,10 +19,11 @@ Rounds cycle through betting, racing, and results. **Start run** closes betting 
 
 ## Foundations
 
-- `shared/level.js` defines the single arena, static collider geometry, stations, circulation paths, and six identities.
+- `shared/level.js` defines the single arena, static collider geometry, stations, circulation paths, and seven identities.
 - `shared/physics.js` initializes Rapier; `shared/simulation.js` executes bounded physical commands and owns persistent cup ownership, unattended brewing, collisions, and delivery. It never chooses a runner's destination or action.
-- `client/scene.js` loads authored glTF assets, interpolates network snapshots, and coordinates animation, physical mugs, local indicators, and effects. `client/camera.js` and `client/audio.js` handle framing and event sound.
-- `scripts/build-assets.py` authors the original models and animation clips in Blender. Exported GLBs are committed in `public/assets`.
+- `client/mascots.js` preserves the seven original Coffee Royale models and poses from PR #3; `shared/mascots.js` supplies their names and palettes. `client/mascot-view.js` adds running with coffee, reaching, falling, recovery, and persistent takeaway cups.
+- `client/scene.js` loads the authored glTF environment and chairs, interpolates network snapshots, and coordinates mascots, physical cups, local indicators, and effects. `client/camera.js` and `client/audio.js` handle framing and event sound.
+- `scripts/build-assets.py` authors the environment and chairs in Blender. Exported GLBs and the seven original mascot portraits are committed in `public/assets`.
 - `server/betting.js` maintains virtual wallets and pari-mutuel settlement. Socket.IO distributes authoritative snapshots and wager results.
 
 The legacy simulation, procedural renderer, separate delivery desks, and website layout have been replaced. The prototype exists only in Git history on `archive/coffee-run-prototype-20261101`; it is not a second runtime or an asset fallback.
@@ -31,9 +32,10 @@ The legacy simulation, procedural renderer, separate delivery desks, and website
 
 ```sh
 /usr/bin/blender --background --python scripts/build-assets.py
-/usr/bin/blender --background --python scripts/build-assets.py -- --characters-only
 /usr/bin/blender --background --python scripts/build-assets.py -- --environment-only
 ```
+
+The mascot models are generated locally from their original Three.js source, without character downloads or Blender at runtime. Their original `idle`, `run`, `carry`, `punch`, `stunned`, `wobble`, and `victory` poses are retained. See [the asset contract](public/assets/README.md) for ownership and animation integration.
 
 Blender's glTF exporter requires NumPy. On Debian installations without that Python module, install it in Blender's Python environment or the user's Python site packages. The script reads arena geometry from `shared/level.js` and exports meshes without scene cameras or lights.
 
@@ -48,6 +50,16 @@ For an external agent, use `scripts/agent-client.mjs` or the HTTP API. See [agen
 ## Betting
 
 Guests receive 1,000 imaginary coins. A wager can be replaced before the race. Payouts divide the actual pool among winning stakes, using integer amounts. Draws, aborted rounds, and unbacked winners refund stakes. Wallets and rounds are in server memory; a restart resets them. Guest identity is remembered in browser local storage.
+
+## Trailer
+
+The 42-second Remotion edit, directed Rapier takes, supplied music, fonts,
+phone capture, and seven scratch narration clips live in `trailer/`.
+Run `npm run video:prepare`, `npm run video:stills`, `npm run video:render`,
+and `npm run video:mix`. See [the video pipeline](trailer/README.md) and
+[the Mac continuation prompt](trailer/CONTINUE_ON_MAC.md). The complete picture
+render still needs to finish; the scratch narration is replaceable without
+rendering the 3D picture again.
 
 ## Validation and deployment
 

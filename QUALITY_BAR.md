@@ -11,7 +11,7 @@ The target is comparable production care in a small scene. Campaign size, conten
 ## Fixed game identity
 
 - One human waits at one delivery desk.
-- Six autonomous agents compete to serve that human first.
+- Seven agent-controlled mascots compete to serve that human first.
 - There is one coffee type and no recipe-correctness judgment.
 - The first delivered cup with at least 55% remaining wins.
 - Equipment, work surfaces, routes, and loose objects are shared.

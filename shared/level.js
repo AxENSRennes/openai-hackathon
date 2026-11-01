@@ -1,11 +1,10 @@
-export const RUNNERS = [
-  { id: 'pip', name: 'Pip', color: '#ee765b', trait: 'Small legs. Big plans.', pace: 1.08, aggression: .45 },
-  { id: 'bolt', name: 'Bolt', color: '#efbc45', trait: 'Absolutely no brakes.', pace: 1.22, aggression: .65 },
-  { id: 'miso', name: 'Miso', color: '#62bc9c', trait: 'Protects the good stuff.', pace: .98, aggression: .12 },
-  { id: 'clawd', name: 'Clawd', color: '#ae8bd8', trait: 'Our coffee, actually.', pace: 1.04, aggression: .9 },
-  { id: 'byte', name: 'Byte', color: '#62afe1', trait: 'A very elaborate shortcut.', pace: 1.08, aggression: .35 },
-  { id: 'gary', name: 'Gary', color: '#e396b2', trait: 'Just happy to be employed.', pace: 1.02, aggression: .25 },
-];
+import { MASCOTS } from './mascots.js';
+
+export const RUNNERS = Object.entries(MASCOTS).map(([id, mascot], index) => ({
+  id, name: mascot.name, color: mascot.color, trait: mascot.subtitle,
+  pace: [1.08, 1.04, 1.22, 1.02, .98, 1.08, 1.16][index],
+  aggression: [.45, .35, .9, .25, .12, .35, .65][index],
+}));
 
 export const LEVEL = {
   bounds: { minX: -9.6, maxX: 9.6, minZ: -6.6, maxZ: 6.6 },
@@ -29,6 +28,6 @@ export const LEVEL = {
     { id: 'plant-shelf', x: 4.5, z: -5.8, w: 4.8, d: 1, h: .7 },
   ],
   gate: { x: .4, z: -.15, w: .35, d: 2.65, period: 22, closedFor: 5 },
-  spawns: [{x:2.2,z:2.8},{x:4.6,z:2.8},{x:6.8,z:2.8},{x:2.2,z:5},{x:4.6,z:5},{x:6.8,z:5}],
+  spawns: [{x:2.2,z:2.8},{x:4.6,z:2.8},{x:6.8,z:2.8},{x:2.2,z:5},{x:4.2,z:5},{x:6.2,z:5},{x:8.2,z:5}],
   chairs: [{id:'chair-1',x:2.7,z:.7},{id:'chair-2',x:4.2,z:2},{id:'chair-3',x:-1.5,z:3.7}],
 };

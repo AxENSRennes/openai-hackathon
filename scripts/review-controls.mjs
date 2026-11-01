@@ -17,14 +17,19 @@ async function connect() { const socket = io(target, { transports: ['websocket']
 const host = await connect(); let state; host.on('state', value => { state = value; }); await until(() => state);
 await initializePhysics(); const navigator = new CoffeeSimulation();
 const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--enable-unsafe-swiftshader'] });
-const context = await browser.newContext({ viewport: { width: 1280, height: 720 }, recordVideo: { dir: output, size: { width: 1280, height: 720 } } });
+const context = await browser.newContext({ viewport: { width: 1280, height: 720 }, recordVideo: process.env.REVIEW_VIDEO === '0' ? undefined : { dir: output, size: { width: 1280, height: 720 } } });
 const page = await context.newPage(); page.on('pageerror', error => errors.push(error.message));
+const onDemand = process.env.REVIEW_RENDER_ON_DEMAND === '1';
+if (onDemand) await page.route('**/client/scene.js*', async route => {
+  const response = await route.fetch();
+  await route.fulfill({ response, body: (await response.text()).replace('this.container = container;', 'window.keyboardReviewScene = this; this.container = container;') });
+});
 const held = new Set();
 async function keys(desired) {
   for (const key of [...held]) if (!desired.has(key)) { await page.keyboard.up(key); held.delete(key); }
   for (const key of desired) if (!held.has(key)) { await page.keyboard.down(key); held.add(key); }
 }
-const agent = () => state.agents.find(item => item.id === 'pip');
+const agent = () => state.agents.find(item => item.id === 'astra');
 async function navigate(goal) {
   const start = Date.now();
   while (Math.hypot(agent().x - goal.x, agent().z - goal.z) > .34) {
@@ -47,35 +52,49 @@ async function interact(type) {
   const priorCup = agent().cupId;
   const targetId = agent().contextualAction.targetId;
   await page.keyboard.press('e');
-  await until(() => type === 'take' ? !!agent().cupId : type === 'brew' ? state.stations.some(station => station.id === targetId && station.cupId === priorCup) : type === 'deliver' ? state.winner === 'pip' : !agent().interaction, 5000);
+  await until(() => type === 'take' ? !!agent().cupId : type === 'brew' ? state.stations.some(station => station.id === targetId && station.cupId === priorCup) : type === 'deliver' ? state.winner === 'astra' : !agent().interaction, 5000);
   await pause(120);
 }
-async function checkpoint(name) { checkpoints.push({ name, elapsed: state.elapsed, agent: agent(), cups: state.cups, stations: state.stations }); console.log(name, state.elapsed.toFixed(2), agent().x.toFixed(2), agent().z.toFixed(2)); await page.screenshot({ path: output + name + '.png', timeout: 60000 }); }
+async function checkpoint(name) {
+  if (onDemand) await page.evaluate(() => window.keyboardReviewScene.animate());
+  checkpoints.push({ name, elapsed: state.elapsed, agent: agent(), cups: state.cups, stations: state.stations });
+  console.log(name, state.elapsed.toFixed(2), agent().x.toFixed(2), agent().z.toFixed(2));
+  await page.screenshot({ path: output + name + '.png', timeout: 60000 });
+}
 try {
   await page.addInitScript(() => { document.addEventListener('scene-ready', () => { window.reviewReady = true; }, true); });
   await page.goto(target, { waitUntil: 'domcontentloaded' }); await page.waitForFunction(() => window.reviewReady, undefined, { timeout: 60000 });
+  if (onDemand) {
+    await page.waitForFunction(() => window.keyboardReviewScene);
+    // Verify keyboard mechanics separately from software-GPU throughput. Screenshots still render real state.
+    await page.evaluate(() => window.keyboardReviewScene.renderer.setAnimationLoop(null));
+  }
   assert.equal((await ack(host, 'host:reset')).ok, true); await pause(300);
-  // The other five runners are deliberately held idle to isolate the playable action contract.
-  for (const runner of RUNNERS.filter(runner => runner.id !== 'pip')) { const controller = await connect(); assert.equal((await ack(controller, 'agent:control', { id: runner.id, enabled: true })).ok, true); }
-  await page.getByRole('button', { name: 'Control Pip', exact: true }).click();
+  // The other six runners are deliberately held idle to isolate the playable action contract.
+  for (const runner of RUNNERS.filter(runner => runner.id !== 'astra')) { const controller = await connect(); assert.equal((await ack(controller, 'agent:control', { id: runner.id, enabled: true })).ok, true); }
+  await page.getByRole('button', { name: 'Control Astra', exact: true }).click();
   await until(() => agent().controlled);
   assert.equal((await ack(host, 'host:start')).ok, true); await until(() => state.phase === 'racing');
   await page.locator('.scene-mount').focus();
+  // Use the clear south aisle so this keyboard scenario does not depend on moving a chair.
+  for (const point of [{ x: 1.4, z: 5.8 }, { x: -4.1, z: 5.8 }, { x: -4.1, z: 3.5 }]) await navigate(point);
   await navigate(LEVEL.cupRack); await interact('take'); assert.ok(agent().cupId);
   const cupId = agent().cupId; await checkpoint('take');
+  for (const point of [{ x: -6.1, z: 3.2 }, { x: -6.1, z: -4.1 }]) await navigate(point);
   await navigate(LEVEL.stations[0]); await interact('brew');
   assert.equal(state.stations[0].cupId, cupId); assert.equal(agent().cupId, null);
   await navigate({ x: -7.5, z: -2.8 }); await checkpoint('unattended-brew');
   await until(() => state.stations[0].ready, 10000);
   await navigate(LEVEL.stations[0]); await interact('take'); assert.equal(agent().cupId, cupId);
   await checkpoint('coffee-carry');
+  for (const point of [{ x: -6.1, z: -2.2 }, { x: -.5, z: -2.2 }, { x: -.5, z: 5.8 }, { x: 7.45, z: 5.8 }, { x: 7.45, z: .8 }]) await navigate(point);
   await navigate(LEVEL.customer.delivery); await interact('deliver');
   await until(() => state.phase === 'results');
-  assert.equal(state.winner, 'pip'); assert.ok(agent().coffee >= 55);
+  assert.equal(state.winner, 'astra'); assert.ok(agent().coffee >= 55);
   assert.ok(state.cups.find(cup => cup.id === cupId)?.delivered);
   await checkpoint('manual-delivery');
   assert.deepEqual(errors, []);
-  await writeFile(output + 'report.json', JSON.stringify({ target, scenario: 'Actual browser keyboard play with five deliberately idle controlled rivals; ordinary unscripted competition is reviewed separately.', checkpoints, winner: state.winner, coffee: agent().coffee, errors }, null, 2));
+  await writeFile(output + 'report.json', JSON.stringify({ target, scenario: 'Actual browser keyboard play with six deliberately idle controlled rivals; ordinary unscripted competition is reviewed separately.', rendering: onDemand ? 'Real-state frames rendered at checkpoints to isolate keyboard mechanics from software-GPU throughput.' : 'Continuous rendering', checkpoints, winner: state.winner, coffee: agent().coffee, errors }, null, 2));
 } finally {
   await keys(new Set()).catch(() => {});
   for (const client of clients) client.disconnect();
