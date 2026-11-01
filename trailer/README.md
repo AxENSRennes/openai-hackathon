@@ -28,6 +28,10 @@ on Linux. Reduce concurrency if memory pressure rises. A short render probe is:
 node trailer/render.mjs --frames=660-689
 ```
 
+On macOS, the renderer reuses Google Chrome from `/Applications` when present.
+Set `REMOTION_BROWSER_EXECUTABLE` to use a different installed Chrome executable.
+This avoids downloading a separate browser for local rendering.
+
 ## Voice job
 
 `video:prepare` stages the approved request at

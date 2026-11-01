@@ -1,4 +1,5 @@
 import { mkdir } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { bundle } from '@remotion/bundler';
@@ -10,7 +11,10 @@ await mkdir(output, { recursive: true });
 const serveUrl = await bundle({ entryPoint: path.join(root, 'film.jsx'), publicDir: path.join(root, 'generated/public'), outDir: path.join(root, 'generated/bundle') });
 const gl = process.env.REMOTION_GL || (process.platform === 'darwin' ? 'angle' : 'swangle');
 const concurrency = Number(process.env.VIDEO_CONCURRENCY || (process.platform === 'darwin' ? 4 : 2));
-const browser = await openBrowser('chrome', { chromiumOptions: { gl } });
+const installedChrome = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const browserExecutable = process.env.REMOTION_BROWSER_EXECUTABLE
+  || (process.platform === 'darwin' && existsSync(installedChrome) ? installedChrome : undefined);
+const browser = await openBrowser('chrome', { browserExecutable, chromiumOptions: { gl } });
 try {
   const composition = await selectComposition({ serveUrl, id: 'CoffeeRunTrailer', puppeteerInstance: browser });
   if (process.argv.includes('--stills')) {
