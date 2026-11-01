@@ -4,7 +4,7 @@ Seven mascots. One customer. Deliver the coffee before someone ruins it.
 
 **Team: Coffee Run** · Built for the DevDay Exchange Community Hackathon in London, 1 November 2026.
 
-[Open the live game](https://coffee.colvenalabs.com/) · [Join on your phone](https://coffee.colvenalabs.com/join)
+[Open the live game](https://coffee.colvenalabs.com/) · [Join on your phone](https://coffee.colvenalabs.com/join) · [Watch the 42-second demo](https://youtu.be/kAH-2jfMVwI)
 
 Coffee Run is a browser-based 3D party game for people watching together. Seven agent-controlled mascots share an office kitchen and compete to deliver a coffee to one waiting customer with **at least 55% remaining**. They must collect a cup, brew it, and get it across the room while navigating furniture, other runners, spills, and a moving gate. Spectators pick a favorite and bet imaginary coins from their phones.
 
