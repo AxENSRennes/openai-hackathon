@@ -72,6 +72,7 @@ export class CoffeeSimulation {
   constructor({ round = 1 } = {}) {
     this.round = round; this.rand = randomFrom(round * 9199 + 42);
     this.elapsed = 0; this.winner = null; this.finished = false; this.events = []; this.spills = []; this.eventId = 0;
+    this.machinePauseRemaining = 0;
     const homeOrder = MAP.desks.map((_, i) => i);
     for (let i = homeOrder.length - 1; i > 0; i--) {
       const j = Math.floor(this.rand() * (i + 1));
@@ -111,6 +112,36 @@ export class CoffeeSimulation {
     if (lost > 5) this.spills.push({ id: `${this.round}-spill-${++this.eventId}`, x: agent.x, z: agent.z, radius: .45 + lost / 130, ttl: 36, born: this.elapsed });
     if (reason && lost > 8) this.log(`${agent.name} ${reason}. ${Math.round(agent.coffee)}% coffee left.`, 'spill', agent.id);
   }
+  applyCameoEffect(effect) {
+    if (effect.spill) {
+      const agent = this.agents.find(candidate => candidate.id === effect.spill.runnerId);
+      if (agent?.carrying && agent.coffee > 0) {
+        this.spill(agent, effect.spill.coffeePoints, null);
+      }
+    }
+    this.machinePauseRemaining = Math.max(this.machinePauseRemaining, effect.delaySeconds || 0);
+  }
+  addCameoIncident(visitId, effect) {
+    const spill = effect.spill && this.agents.find(agent => agent.id === effect.spill.runnerId);
+    const delayText = effect.delaySeconds ? 'stalled the coffee machine for 3 seconds' : '';
+    const spillText = spill ? `splashed ${effect.spill.coffeePoints}% from ${spill.name}’s coffee` : '';
+    const text = spillText && delayText
+      ? `The cameo ${spillText} and ${delayText}.`
+      : spillText
+        ? `The cameo ${spillText}.`
+        : delayText
+          ? `The cameo found no coffee to spill, but ${delayText}.`
+          : 'The cameo found no coffee to spill.';
+    this.events.unshift({
+      id: `${this.round}-cameo-${visitId}`,
+      type: 'cameo',
+      visitId,
+      time: this.elapsed,
+      text,
+      effect: { outcome: effect.outcome, spill: effect.spill, delaySeconds: effect.delaySeconds },
+    });
+    this.events = this.events.slice(0, 25);
+  }
   fall(agent, dx, dz, reason) {
     if (agent.fallen || agent.slipCooldown > 0) return;
     agent.fallen = true; agent.fallTimer = 1.6 + this.rand() * .65; agent.slipCooldown = 5; agent.falls++;
@@ -124,6 +155,8 @@ export class CoffeeSimulation {
     if (this.finished) return;
     if (!Number.isFinite(dt) || dt <= 0) return;
     dt = clamp(dt, 0, .1); this.elapsed += dt;
+    const machineServiceDelta = dt - Math.min(dt, this.machinePauseRemaining);
+    this.machinePauseRemaining = Math.max(0, this.machinePauseRemaining - dt);
     this.spills = this.spills.filter(s => (s.ttl -= dt) > 0).slice(-32);
     for (const a of this.agents) {
       a.cooldown -= dt; a.slipCooldown -= dt;
@@ -140,7 +173,9 @@ export class CoffeeSimulation {
         this.route(a, a.goal);
       }
       if (a.wait > 0 && !a.fallen) {
-        a.wait -= dt; a.moving = false;
+        if (a.stage === 'machine') a.wait -= machineServiceDelta;
+        else a.wait -= dt;
+        a.moving = false;
         if (a.wait <= 0) {
           if (a.stage === 'cup') { a.carrying = true; a.stage = 'machine'; a.state = 'To the coffee machine'; this.route(a, MAP.machine); }
           else if (a.stage === 'machine') {
@@ -172,7 +207,8 @@ export class CoffeeSimulation {
           if (a.stage === 'cup') { a.wait = .65; a.state = 'Acquiring a cup'; }
           else if (a.stage === 'machine') {
             const busy = this.agents.some(b => b !== a && b.stage === 'machine' && b.wait > 0);
-            if (!busy) { a.wait = 2.6; a.state = 'Brewing something important'; }
+            if (!busy && this.machinePauseRemaining <= 0) { a.wait = 2.6; a.state = 'Brewing something important'; }
+            else if (this.machinePauseRemaining > 0) a.state = 'Waiting out a machine delay';
             else { a.state = 'Patiently losing patience'; if (a.cooldown < 0 && this.rand() < dt * .2) this.log(`${a.name} would like to speak to the coffee machine.`, 'info', a.id); }
           } else if (a.stage === 'delivery' && a.routeLeg) {
             a.routeLeg = false; this.route(a,{ x:a.desk.targetX,z:a.desk.targetZ });

@@ -1,0 +1,191 @@
+.cameo-panel {
+  display: grid;
+  gap: 10px;
+  padding: 15px 18px;
+  background: #f2f3e9;
+  border-bottom: 1px solid #d9dece;
+}
+
+.cameo-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cameo-heading .eyebrow {
+  margin-bottom: 4px;
+  color: #59674a;
+  font-size: 8px;
+}
+
+.cameo-heading h2 {
+  font-family: var(--display);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+.cameo-queue {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #536145;
+  font-size: 10px;
+}
+
+.cameo-queue strong {
+  display: grid;
+  min-width: 25px;
+  height: 25px;
+  place-items: center;
+  border: 1px solid #899876;
+  border-radius: 50%;
+  color: #35462f;
+  font-variant-numeric: tabular-nums;
+}
+
+.cameo-detail {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 11px;
+}
+
+.cameo-detail p {
+  color: #35462f;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.cameo-preview {
+  display: block;
+  width: 56px;
+  height: 56px;
+  flex: 0 0 56px;
+  border: 1px solid #84906f;
+  border-radius: 5px;
+  background: #e3e6d9;
+  object-fit: cover;
+}
+
+.cameo-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.cameo-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+.cameo-photo-button,
+.cameo-preset-button {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  padding: 9px 13px;
+  border: 1px solid #405739;
+  border-radius: 5px;
+  background: #304432;
+  color: #fffdf4;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.cameo-photo-button:hover,
+.cameo-preset-button:hover:not(:disabled) {
+  background: #465d3f;
+}
+
+.cameo-photo-button:active {
+  transform: translateY(1px);
+  background: #27392b;
+}
+
+.cameo-photo-button.disabled,
+.cameo-preset-button:disabled {
+  cursor: not-allowed;
+  opacity: .55;
+}
+
+.cameo-file-input:focus-visible + .cameo-photo-button {
+  outline: 3px solid #6c842b;
+  outline-offset: 3px;
+}
+
+.cameo-preset-button {
+  border-color: #61734e;
+  background: #f9f7ef;
+  color: #35462f;
+}
+
+.cameo-preset-button:hover:not(:disabled) {
+  background: #e7ebdc;
+}
+
+.cameo-help {
+  flex-basis: 100%;
+  color: #536145;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.cameo-message {
+  color: #435a36;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.cameo-message.error {
+  color: #963e2a;
+}
+
+.phone-cameo {
+  margin: 0 0 15px;
+  border: 1px solid #d9dece;
+  border-radius: 8px;
+  background: #f6f5eb;
+}
+
+.phone-cameo .cameo-heading h2 {
+  font-size: 22px;
+}
+
+.phone-cameo .cameo-detail p,
+.phone-cameo-incidents p {
+  font-size: 13px;
+}
+
+.phone-cameo-incidents {
+  display: grid;
+  gap: 7px;
+  padding-top: 8px;
+  border-top: 1px solid #d9dece;
+}
+
+.phone-cameo-incidents p {
+  color: #4a5740;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.cameo-loading {
+  color: #4a5740;
+  font-size: 12px;
+}
+
+.event-cameo .feed-marker {
+  color: var(--orange);
+}

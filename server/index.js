@@ -8,6 +8,8 @@ import { Server } from 'socket.io';
 import { CoffeeSimulation, RUNNERS } from '../shared/simulation.js';
 import { BettingBook } from './betting.js';
 import { AgentPlanner } from './planner.js';
+import { CameoDirector } from './cameo.js';
+import { CameoAssetStore } from './cameo-assets.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 if (existsSync(path.join(root, '.env'))) {
@@ -20,8 +22,11 @@ const http = createServer(app);
 const io = new Server(http, { maxHttpBufferSize: 16_384, pingTimeout: 20_000 });
 const book = new BettingBook(RUNNERS);
 const planner = new AgentPlanner(RUNNERS);
+const cameoAssets = new CameoAssetStore();
+const cameoDirector = new CameoDirector({ onVisitReleased: visit => cameoAssets.release(visit.characterId) });
 let round = 1;
 let phase = 'betting';
+let shuttingDown = false;
 let phaseStarted = Date.now();
 let simulation = new CoffeeSimulation({ round });
 let lastResults = [];
@@ -46,6 +51,7 @@ function publicState() {
   const elapsed = (Date.now() - phaseStarted) / 1000;
   return {
     ...latestSnapshot,
+    cameo: cameoDirector.snapshot(),
     phase, round, timeLeft: Math.max(0, durations[phase] - elapsed),
     racers: RUNNERS, betting: book.summary(connectedPlayers()), lastResults,
     joinUrl: urls().joinUrl, agentMode: planner.mode, agentStatus: planner.status,
@@ -63,6 +69,7 @@ function beginRace() {
   if (phase !== 'betting') return false;
   phase = 'racing';
   phaseStarted = Date.now();
+  cameoDirector.reset();
   planner.reset();
   io.emit('state', publicState());
   return true;
@@ -72,8 +79,9 @@ function endRace() {
   if (phase !== 'racing') return;
   if (!latestSnapshot.finished) {
     simulation.finish();
-    latestSnapshot = simulation.snapshot();
   }
+  cameoDirector.reset();
+  latestSnapshot = simulation.snapshot();
   phase = 'results';
   phaseStarted = Date.now();
   planner.reset();
@@ -89,6 +97,7 @@ function nextRound({ refund = false } = {}) {
   round += 1;
   phase = 'betting';
   phaseStarted = Date.now();
+  cameoDirector.reset();
   simulation = new CoffeeSimulation({ round });
   latestSnapshot = simulation.snapshot();
   planner.reset();
@@ -98,8 +107,76 @@ function nextRound({ refund = false } = {}) {
 
 app.get('/api/info', (_request, response) => response.json({ ...urls(), agentMode: planner.mode }));
 app.get('/api/health', (_request, response) => response.json({ ok: true, phase, round }));
+app.post('/api/cameo-visits', express.raw({ type: '*/*', limit: 256 * 1024, inflate: false }), (request, response) => {
+  if (shuttingDown) return response.status(503).json({ ok: false, error: 'The server is shutting down.' });
+  const socketId = request.get('X-Coffee-Host-Socket');
+  const hostSocket = socketId && io.sockets.sockets.get(socketId);
+  if (!hostSocket?.data.isHost) return response.status(403).json({ ok: false, error: 'A connected broadcast host is required.' });
+  if (phase !== 'racing' || simulation.finished || Date.now() - phaseStarted >= durations.racing * 1000) {
+    return response.status(409).json({ ok: false, error: 'Cameos can only be uploaded during a race.' });
+  }
+
+  const mediaType = request.get('Content-Type')?.split(';', 1)[0].trim().toLowerCase();
+  if (mediaType !== 'image/webp') return response.status(415).json({ ok: false, error: 'Upload must use image/webp.' });
+  const bytes = request.body;
+  if (!Buffer.isBuffer(bytes) || bytes.length < 12) {
+    return response.status(400).json({ ok: false, error: 'Upload is not a valid WebP image.' });
+  }
+  if (bytes.length > 256 * 1024) return response.status(413).json({ ok: false, error: 'WebP uploads must be 256 KB or smaller.' });
+  if (bytes.toString('ascii', 0, 4) !== 'RIFF' || bytes.toString('ascii', 8, 12) !== 'WEBP') {
+    return response.status(400).json({ ok: false, error: 'Upload is not a valid WebP image.' });
+  }
+
+  const characterId = cameoAssets.create(bytes);
+  let result;
+  try {
+    result = cameoDirector.enqueue({ characterId, assetUrl: `/api/cameo-assets/${characterId}` });
+    if (!cameoAssets.retain(characterId)) throw new Error('Cameo asset was not retained.');
+  } catch (error) {
+    cameoAssets.discard(characterId);
+    throw error;
+  }
+
+  latestSnapshot = simulation.snapshot();
+  io.emit('state', publicState());
+  return response.json(result);
+});
+app.get('/api/cameo-assets/:characterId', (request, response) => {
+  const bytes = cameoAssets.get(request.params.characterId);
+  if (!bytes) return response.status(404).json({ ok: false, error: 'Cameo asset not found.' });
+  response.type('image/webp').set({
+    'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
+  });
+  return response.send(bytes);
+});
+app.use((error, _request, response, next) => {
+  if (error.type === 'entity.too.large') {
+    return response.status(413).json({ ok: false, error: 'WebP uploads must be 256 KB or smaller.' });
+  }
+  if (error.type === 'encoding.unsupported') {
+    return response.status(415).json({ ok: false, error: 'Encoded request bodies are not supported.' });
+  }
+  return next(error);
+});
 
 io.on('connection', (socket) => {
+  const headers = socket.handshake.headers;
+  const hostHeader = headers.host;
+  const forwardedProtocol = headers['x-forwarded-proto']?.split(',')[0]?.trim();
+  const requestProtocol = forwardedProtocol || (socket.request.socket.encrypted ? 'https' : 'http');
+  try {
+    const referer = new URL(headers.referer);
+    socket.data.isHost = Boolean(
+      hostHeader
+      && headers.referer
+      && referer.host === hostHeader
+      && referer.protocol === `${requestProtocol}:`
+      && referer.pathname === '/'
+    );
+  } catch {
+    socket.data.isHost = false;
+  }
   socket.emit('state', publicState());
   socket.on('join', (payload = {}, callback) => {
     if (!payload || typeof payload !== 'object') return;
@@ -119,12 +196,34 @@ io.on('connection', (socket) => {
     } else socket.emit('game:error', { message: result.error });
   });
   socket.on('host:start', (callback) => {
+    if (!socket.data.isHost) {
+      if (typeof callback === 'function') callback({ ok: false, error: 'Only the broadcast host can start a race.' });
+      return;
+    }
     const ok = beginRace();
     if (typeof callback === 'function') callback({ ok, error: ok ? undefined : 'The race is already underway.' });
   });
   socket.on('host:reset', (callback) => {
+    if (!socket.data.isHost) {
+      if (typeof callback === 'function') callback({ ok: false, error: 'Only the broadcast host can reset a race.' });
+      return;
+    }
     nextRound({ refund: phase !== 'results' });
     if (typeof callback === 'function') callback({ ok: true });
+  });
+  socket.on('host:trigger', (callback) => {
+    if (!socket.data.isHost) {
+      if (typeof callback === 'function') callback({ ok: false, error: 'Only the broadcast host can trigger a cameo.' });
+      return;
+    }
+    if (phase !== 'racing' || simulation.finished || Date.now() - phaseStarted >= durations.racing * 1000) {
+      if (typeof callback === 'function') callback({ ok: false, error: 'Cameos can only be triggered during a race.' });
+      return;
+    }
+    const result = cameoDirector.enqueue({ characterId: 'preset:rascal' });
+    latestSnapshot = simulation.snapshot();
+    io.emit('state', publicState());
+    if (typeof callback === 'function') callback(result);
   });
 });
 
@@ -145,6 +244,8 @@ const interval = setInterval(() => {
   previousTick = now;
   if (phase === 'racing') {
     simulation.step(delta);
+    if (simulation.finished) cameoDirector.reset();
+    else cameoDirector.tick(Date.now(), simulation);
     latestSnapshot = simulation.snapshot();
     planner.update(simulation, latestSnapshot);
     if (latestSnapshot.finished || Date.now() - phaseStarted >= durations.racing * 1000) endRace();
@@ -163,11 +264,17 @@ http.listen(port, '0.0.0.0', () => {
 });
 
 async function shutdown() {
+  shuttingDown = true;
   clearInterval(interval);
+  cameoDirector.reset();
+  cameoAssets.clear();
   planner.dispose();
   await vite?.close();
   io.close();
-  http.close(() => process.exit(0));
+  http.close(() => {
+    cameoAssets.clear();
+    process.exit(0);
+  });
 }
 process.once('SIGINT', shutdown);
 process.once('SIGTERM', shutdown);

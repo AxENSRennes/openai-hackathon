@@ -5,6 +5,8 @@ All code, code comments, and artifacts must be written in English.
 <!-- antislop:start -->
 # Anti Slop
 
+For this repository, use antislop in during mode. Do not ask the user to choose a mode.
+
 Read `.agents/skills/antislop/SKILL.md` at the start of each session and follow its core rules. Load the relevant companion skills for the task:
 
 - UI and visual design: `.agents/skills/antislop-ui/SKILL.md`
