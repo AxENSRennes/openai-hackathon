@@ -4,6 +4,7 @@ import { promisify } from 'node:util';
 import { brotliCompress, gzip, constants } from 'node:zlib';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
+import sharp from 'sharp';
 
 const brotli = promisify(brotliCompress), gzipAsync = promisify(gzip);
 const align = length => Math.ceil(length / 4) * 4;
@@ -16,14 +17,16 @@ export function readGlb(bytes) {
   return { document, binary: bytes.subarray(binaryOffset, binaryOffset + bytes.readUInt32LE(binaryOffset - 8)) };
 }
 
-export function shareTextures(bytes) {
+export function shareTextures(bytes, imageVariants = new Map()) {
   const { document, binary } = readGlb(bytes);
   const textures = new Map(), imageViews = new Set();
   for (const image of document.images || []) {
     if (image.bufferView === undefined) continue;
     const view = document.bufferViews[image.bufferView];
     if (view.buffer !== 0) throw new Error('Only embedded GLB buffers are supported.');
-    const data = binary.subarray(view.byteOffset || 0, (view.byteOffset || 0) + view.byteLength);
+    const source = binary.subarray(view.byteOffset || 0, (view.byteOffset || 0) + view.byteLength);
+    const sourceHash = createHash('sha256').update(source).digest('hex');
+    const data = imageVariants.get(sourceHash) || source;
     const extension = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' }[image.mimeType];
     if (!extension) throw new Error(`Unsupported image format: ${image.mimeType}`);
     const hash = createHash('sha256').update(data).digest('hex');
@@ -65,24 +68,44 @@ export function shareTextures(bytes) {
 }
 
 export async function prepareAssets(directory) {
-  const files = (await readdir(directory)).filter(name => name.endsWith('.glb'));
-  const textures = new Map();
+  const files = (await readdir(directory)).filter(name => name.endsWith('.glb') && !/-[a-f0-9]{20}\.glb$/.test(name));
+  const textures = new Map(), manifest = {}, imageVariants = new Map();
   const stats = { models: files.length, sourceBytes: 0, modelBytes: 0, brotliBytes: 0, sharedTextureBytes: 0 };
   await mkdir(path.join(directory, 'shared-textures'), { recursive: true });
   for (const name of files) {
     const file = path.join(directory, name), original = await readFile(file);
-    const optimized = shareTextures(original);
+    const { document, binary } = readGlb(original);
+    for (const image of document.images || []) {
+      if (image.mimeType !== 'image/png' || image.bufferView === undefined) continue;
+      const view = document.bufferViews[image.bufferView];
+      const data = binary.subarray(view.byteOffset || 0, (view.byteOffset || 0) + view.byteLength);
+      const hash = createHash('sha256').update(data).digest('hex');
+      if (imageVariants.has(hash)) continue;
+      const encoded = await sharp(data).png({ compressionLevel: 9, adaptiveFiltering: true, effort: 10 }).toBuffer();
+      imageVariants.set(hash, encoded.length < data.length ? encoded : data);
+    }
+    const optimized = shareTextures(original, imageVariants);
     for (const [uri, data] of optimized.textures) textures.set(uri, data);
-    const [br, gz] = await Promise.all([
-      brotli(optimized.bytes, { params: { [constants.BROTLI_PARAM_QUALITY]: 9 } }),
-      gzipAsync(optimized.bytes, { level: 9 }),
-    ]);
-    await writeFile(file, optimized.bytes); await writeFile(`${file}.br`, br); await writeFile(`${file}.gz`, gz);
-    stats.sourceBytes += original.length; stats.modelBytes += optimized.bytes.length; stats.brotliBytes += br.length;
+    const hash = createHash('sha256').update(optimized.bytes).digest('hex').slice(0, 20);
+    const versioned = name.replace('.glb', `-${hash}.glb`);
+    const [br, gz] = await Promise.all([brotli(optimized.bytes, { params: { [constants.BROTLI_PARAM_QUALITY]: 9 } }), gzipAsync(optimized.bytes, { level: 9 })]);
+    for (const filename of [name, versioned]) {
+      await writeFile(path.join(directory, filename), optimized.bytes);
+      await writeFile(path.join(directory, `${filename}.br`), br); await writeFile(path.join(directory, `${filename}.gz`), gz);
+    }
+    stats.modelBytes += optimized.bytes.length; stats.brotliBytes += br.length;
+    manifest[name.replace('.glb', '')] = `/assets/${versioned}`;
+    stats.sourceBytes += original.length;
   }
   for (const [uri, data] of textures) { await writeFile(path.join(directory, uri), data); stats.sharedTextureBytes += data.length; }
+  for (const name of (await readdir(directory)).filter(name => /\.(js|css)$/.test(name))) {
+    const bytes = await readFile(path.join(directory, name));
+    const [br, gz] = await Promise.all([brotli(bytes, { params: { [constants.BROTLI_PARAM_QUALITY]: 9 } }), gzipAsync(bytes, { level: 9 })]);
+    await writeFile(path.join(directory, `${name}.br`), br); await writeFile(path.join(directory, `${name}.gz`), gz);
+  }
   stats.downloadBytes = stats.brotliBytes + stats.sharedTextureBytes;
   await writeFile(path.join(directory, 'delivery-stats.json'), JSON.stringify(stats, null, 2));
+  await writeFile(path.join(directory, 'model-manifest.json'), JSON.stringify(manifest));
   return stats;
 }
 

@@ -98,17 +98,22 @@ export class CoffeeScene {
     };
     manager.onProgress = report;
     const loader = new GLTFLoader(manager);
-    const [environment, chair] = await Promise.all(names.map(async name => {
-      const asset = await loader.loadAsync(`/assets/${name}.glb`, event => {
+    const manifest = await fetch('/assets/model-manifest.json', { cache: 'no-cache', signal: AbortSignal.timeout(10000) }).then(response => response.ok ? response.json() : {}).catch(() => ({}));
+    const load = async name => {
+      const asset = await loader.loadAsync(manifest[name] || `/assets/${name}.glb`, event => {
         if (event.total) progress.set(name, Math.min(.85, event.loaded / event.total * .85));
         report();
       });
       progress.set(name, 1); report(); return asset;
-    }));
-    if (this.disposed) { for (const asset of [environment, chair]) this.disposeAsset(asset.scene); return; }
+    };
+    const environment = await load('environment');
+    if (this.disposed) { this.disposeAsset(environment.scene); return; }
     this.world.add(this.registerAsset(environment.scene));
+    this.createGate(); this.createIndicators();
+    this.renderer.render(this.scene, this.camera);
+    this.container.dispatchEvent(new CustomEvent('scene-visible'));
+    const chairReady = load('chair');
     this.mugAsset = this.registerAsset(createTakeawayCup());
-    this.registerAsset(chair.scene);
     for (const [index, runner] of RUNNERS.entries()) {
       const mascot = createRunnerMascot(runner.id), model = this.registerAsset(mascot.root);
       const root = new THREE.Group();
@@ -117,11 +122,15 @@ export class CoffeeScene {
       const shadow = this.contactShadow(.67); root.add(shadow);
       const label = this.makeSprite(256, 96, 1.15, .43); label.sprite.position.y = 2.14; root.add(label.sprite);
       this.characters.set(runner.id, { root, model, mascot, socket: mascot.socket, runner, label, labelKey: '', agent: null });
+      this.container.dispatchEvent(new CustomEvent('scene-runner-ready', { detail: { id: runner.id } }));
     }
+    if (this.state) this.syncState(this.state);
+    const chair = await chairReady;
+    if (this.disposed) { this.disposeAsset(chair.scene); return; }
+    this.registerAsset(chair.scene);
     for (const prop of LEVEL.chairs) {
       const root = clone(chair.scene); root.position.set(prop.x, 0, prop.z); this.world.add(root); root.add(this.contactShadow(.65)); this.chairs.set(prop.id, root);
     }
-    this.createGate(); this.createIndicators();
     if (this.state) this.syncState(this.state);
     this.container.dispatchEvent(new CustomEvent('scene-ready', { detail: { softwareRenderer: this.softwareRenderer, lowPowerRendering: this.lowPowerRendering } }));
   }
