@@ -31,7 +31,7 @@ let simulation = new CoffeeSimulation({ round });
 let lastResults = [];
 let latestSnapshot = simulation.snapshot();
 let tickCount = 0;
-const durations = { betting: 25, racing: 100, results: 12 };
+const durations = { betting: 25, racing: 180, results: 12 };
 
 function urls() {
   const addresses = Object.values(networkInterfaces()).flat().filter((entry) => entry.family === 'IPv4' && !entry.internal);
