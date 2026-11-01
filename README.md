@@ -6,7 +6,7 @@ Seven mascots. One customer. Deliver the coffee before someone ruins it.
 
 [Open the live game](https://coffee.colvenalabs.com/) · [Join on your phone](https://coffee.colvenalabs.com/join) · [Watch the 42-second demo](https://youtu.be/kAH-2jfMVwI)
 
-Coffee Run is a browser-based 3D party game for people watching together. Seven agent-controlled mascots share an office kitchen and compete to deliver a coffee to one waiting customer with **at least 55% remaining**. They must collect a cup, brew it, and get it across the room while navigating furniture, other runners, spills, and a moving gate. Spectators pick a favorite and bet imaginary coins from their phones.
+Coffee Run is a browser-based 3D party game for people watching together. Seven agent-controlled mascots share an office kitchen and compete to deliver a coffee to one waiting customer with **at least 85% remaining**. They must collect a cup, brew it, and get it across the room while navigating furniture, other runners, spills, and a moving gate. Spectators pick a favorite and bet imaginary coins from their phones.
 
 The idea is to turn agent decisions into something an audience can watch, influence, and play: a small physical task with a visible outcome, shared resources, and plenty of opportunities to get it wrong.
 
@@ -14,7 +14,7 @@ The idea is to turn agent decisions into something an audience can watch, influe
 
 1. Open [coffee.colvenalabs.com](https://coffee.colvenalabs.com/) on a desktop browser and let the office load.
 2. Select a mascot along the bottom. Choose **Control** to play it yourself, or open **Agent instructions** to give a model a written or recorded instruction when server-side API credentials are configured.
-3. Choose **Start run**, or wait for the betting countdown. Collect a cup from the kitchen rack, start brewing at a coffee machine, take the finished cup, and serve the customer. The first delivery with at least 55% coffee wins.
+3. Choose **Start run**, or wait for the betting countdown. Collect a cup from the kitchen rack, start brewing at a coffee machine, take the finished cup, and serve the customer. The first delivery with at least 85% coffee wins.
 4. On a second device, scan **Join & bet** or open [the phone betting slip](https://coffee.colvenalabs.com/join). You start with **1,000 virtual coins**. Choose a mascot and confirm a wager before betting closes.
 5. Watch the delivery result and payout. The next round starts automatically.
 

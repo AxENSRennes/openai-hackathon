@@ -21,7 +21,7 @@ The arena dominates a complete game screen. A compact pictorial HUD communicates
 
 ## Game rules
 
-Take a cup from the shared kitchen, prepare coffee at the shared equipment, and deliver it to the one waiting human with at least 55% remaining. There is one coffee type and no recipe-correctness judgment. Cups persist when placed or dropped, can be stolen while unattended, and can break. An opponent must first make a held cup drop before taking it.
+Take a cup from the shared kitchen, prepare coffee at the shared equipment, and deliver it to the one waiting human with at least 85% remaining. There is one coffee type and no recipe-correctness judgment. Cups persist when placed or dropped, can be stolen while unattended, and can break. An opponent must first make a held cup drop before taking it.
 
 Unattended preparation, shared resources, changing routes, and recoverable setbacks create competing useful actions. Agents can revise their plans, recover a cup, or return to make another coffee. Physical comedy follows understandable rules. An expired race without delivery is a draw and refunds bets.
 

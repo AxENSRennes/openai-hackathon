@@ -377,17 +377,20 @@ test('the first delivery ends the tick atomically with one winner and an immutab
   } finally { sim.dispose(); }
 });
 
-test('only a reachable coffee above the threshold can serve the single shared customer', () => {
+test('only a reachable coffee at or above 85% can serve the single shared customer', () => {
   const sim = new CoffeeSimulation();
   try {
     isolate(sim); const a = sim.agents[0], cup = sim.cups[0];
     position(a, LEVEL.cupRack.x, LEVEL.cupRack.z); sim.takeCup(a, cup); cup.coffee = 100;
     a.interaction = { type: 'deliver' }; sim.completeInteraction(a);
     assert.equal(sim.winner, null, 'A distant agent cannot claim delivery');
-    position(a, LEVEL.customer.delivery.x, LEVEL.customer.delivery.z); cup.coffee = 54.99;
+    position(a, LEVEL.customer.delivery.x, LEVEL.customer.delivery.z); cup.coffee = 84.99;
+    assert.equal(sim.availableActions(a).some(action => action.type === 'deliver'), false);
     a.interaction = { type: 'deliver' }; sim.completeInteraction(a);
     assert.equal(sim.winner, null);
-    cup.coffee = 55; a.interaction = { type: 'deliver' }; sim.completeInteraction(a);
+    cup.coffee = 85;
+    assert.equal(sim.availableActions(a).some(action => action.type === 'deliver'), true);
+    a.interaction = { type: 'deliver' }; sim.completeInteraction(a);
     assert.equal(sim.winner, a.id);
     assert.equal(a.delivered, true);
     assert.equal(cup.delivered, true);

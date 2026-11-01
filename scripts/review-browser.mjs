@@ -64,7 +64,7 @@ try {
   const result = state;
   assert.ok(result.winner, 'The complete observed round must produce a valid coffee delivery.');
   const winner = result.agents.find(agent => agent.id === result.winner);
-  assert.ok(winner.delivered && winner.coffee >= 55);
+  assert.ok(winner.delivered && winner.coffee >= 85);
   assert.ok(result.cups.some(cup => cup.delivered && !cup.holderId && !cup.broken));
   await page.screenshot({ path: output + 'result.png', timeout: 90000 });
   console.log('Complete browser round', result.round, result.winner, result.elapsed, winner.coffee);

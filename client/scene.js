@@ -178,8 +178,8 @@ export class CoffeeScene {
     ctx.fillText(view.runner.name, 54, 38);
     if (agent.carrying) {
       ctx.font = '800 24px Arial'; ctx.textAlign = 'right'; ctx.fillText(`${coffee}%`, 231, 38);
-      ctx.fillStyle = '#bdb69e'; ctx.fillRect(26, 61, 204, 9); ctx.fillStyle = coffee >= 55 ? '#8ca94e' : '#bd4f30'; ctx.fillRect(26, 61, 204 * coffee / 100, 9);
-      ctx.fillStyle = selected ? '#fff7df' : '#253e32'; ctx.fillRect(26 + 204 * .55, 58, 3, 15);
+      ctx.fillStyle = '#bdb69e'; ctx.fillRect(26, 61, 204, 9); ctx.fillStyle = coffee >= 85 ? '#8ca94e' : '#bd4f30'; ctx.fillRect(26, 61, 204 * coffee / 100, 9);
+      ctx.fillStyle = selected ? '#fff7df' : '#253e32'; ctx.fillRect(26 + 204 * .85, 58, 3, 15);
     }
     if (agent.fallen) { ctx.fillStyle = '#bd4f30'; ctx.font = '900 36px Arial'; ctx.textAlign = 'right'; ctx.fillText('!', 231, 38); }
     texture.needsUpdate = true;
@@ -200,7 +200,7 @@ export class CoffeeScene {
     }
     this.deliveryRing = this.floorMarker('#f2cb65', .66, .07); this.deliveryRing.position.set(LEVEL.customer.delivery.x, .035, LEVEL.customer.delivery.z); this.world.add(this.deliveryRing);
     const sign = this.makeSprite(384, 96, 2.4, .6); sign.sprite.position.set(7, 2.88, -1.8); this.world.add(sign.sprite);
-    const ctx = sign.canvas.getContext('2d'); ctx.fillStyle = '#fff6db'; ctx.beginPath(); ctx.roundRect(4, 5, 376, 76, 20); ctx.fill(); ctx.fillStyle = '#314a3b'; ctx.font = '800 31px Arial'; ctx.textAlign = 'center'; ctx.fillText('ONE COFFEE  ·  55% MIN', 192, 52); sign.texture.needsUpdate = true;
+    const ctx = sign.canvas.getContext('2d'); ctx.fillStyle = '#fff6db'; ctx.beginPath(); ctx.roundRect(4, 5, 376, 76, 20); ctx.fill(); ctx.fillStyle = '#314a3b'; ctx.font = '800 31px Arial'; ctx.textAlign = 'center'; ctx.fillText('ONE COFFEE  ·  85% MIN', 192, 52); sign.texture.needsUpdate = true;
     this.selection = this.floorMarker('#fff3ce', .54, .055); this.selection.position.y = .04; this.world.add(this.selection);
     this.contextRing = this.floorMarker('#d6ed87', .24, .045); this.world.add(this.contextRing);
     this.contextHint = this.makeSprite(96, 96, .42, .42); this.world.add(this.contextHint.sprite);

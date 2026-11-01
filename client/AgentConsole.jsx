@@ -4,7 +4,7 @@ export default function AgentConsole({ state, selected, socket, connected, onToa
   const controller = state?.controllers?.find(item => item.id === selected);
   const runner = state?.racers?.find(item => item.id === selected);
   const agent = state?.agents?.find(item => item.id === selected);
-  const [instruction, setInstruction] = useState(controller?.instruction || 'Deliver a coffee with at least 55% remaining.');
+  const [instruction, setInstruction] = useState(controller?.instruction || 'Deliver a coffee with at least 85% remaining.');
   const [mode, setMode] = useState(['responses', 'decisions'].includes(controller?.mode) ? controller.mode : 'responses');
   const [pending, setPending] = useState(false);
   const [recording, setRecording] = useState(false);

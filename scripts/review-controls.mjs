@@ -71,7 +71,7 @@ try {
   await checkpoint('coffee-carry');
   await navigate(LEVEL.customer.delivery, 'deliver'); await interact('deliver');
   await until(() => state.phase === 'results');
-  assert.equal(state.winner, 'astra'); assert.ok(agent().coffee >= 55);
+  assert.equal(state.winner, 'astra'); assert.ok(agent().coffee >= 85);
   assert.ok(state.cups.find(cup => cup.id === cupId)?.delivered);
   await checkpoint('manual-delivery');
   assert.deepEqual(errors, []);

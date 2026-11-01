@@ -48,7 +48,7 @@ try {
   await command({ type: 'look', heading: Math.PI });
   observation = await command({ type: 'deliver' });
   assert.equal(observation.self.delivered, true);
-  assert.ok(observation.self.coffee >= 55);
+  assert.ok(observation.self.coffee >= 85);
   const report = { scenario: 'External scripted controller over HTTP; no model API or hidden game controller', winner: 'astra', coffee: observation.self.coffee, commands, elapsed: observation.elapsed };
   await mkdir('test-results/agent', { recursive: true });
   await writeFile('test-results/agent/live-external.json', JSON.stringify(report, null, 2));

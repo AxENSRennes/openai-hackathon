@@ -54,7 +54,7 @@ The CLI stores the per-runner game token under ignored `.coffee-agent/<host>/`, 
 | `place` | `targetId` | Put the held mug on this worktop. |
 | `drop` | None | Release the held mug into the physical world. |
 | `push` | `targetId` | Shove this reachable runner if the cooldown allows it. |
-| `deliver` | None | Serve at the customer with at least 55% coffee. |
+| `deliver` | None | Serve at the customer with at least 85% coffee. |
 | `stand_up` | None | Start the explicit 1.75-second recovery animation after falling. |
 
 Movement and waiting last 50–1000 milliseconds. Releasing movement lets the existing physical smoothing settle the character; it does not teleport or freeze collision impulses. Actions take physical time and may fail if a rival claims their target first. A failed pickup never chooses a replacement target. The agent must inspect `self.lastCommand` and issue a new command. Human keyboard control retains its contextual interaction button; agent commands always specify the interaction and target.

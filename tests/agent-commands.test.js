@@ -98,7 +98,7 @@ test('an explicit external courier controller completes pickup, unattended brewi
     run(sim, { type: 'take', targetId: cup.id });
     assert.equal(a.coffee, 100);
     drive(LEVEL.customer.delivery); run(sim, { type: 'deliver' });
-    assert.equal(sim.winner, 'astra'); assert.equal(cup.delivered, true); assert.ok(cup.coffee >= 55);
+    assert.equal(sim.winner, 'astra'); assert.equal(cup.delivered, true); assert.ok(cup.coffee >= 85);
     assert.equal(sim.agents.slice(1).some(a => a.cupId || a.command), false);
   } finally { sim.dispose(); }
 });

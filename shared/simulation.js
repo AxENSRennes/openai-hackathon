@@ -59,7 +59,7 @@ export class CoffeeSimulation {
       this.world.createCollider(RAPIER.ColliderDesc.cuboid(.37, .5, .37).setMass(1.8).setFriction(.35), body);
       return { ...p, body };
     });
-    this.log('Waiting for agent commands. First coffee above 55% wins.', 'info');
+    this.log('Waiting for agent commands. First coffee with at least 85% remaining wins.', 'info');
   }
 
   createBox(o, bottom = 0) {
@@ -171,7 +171,7 @@ export class CoffeeSimulation {
     if (a.fallen || a.interaction || a.pushTimer > 0) return [];
     const result = [], cup = this.cupFor(a);
     if (cup) {
-      if (cup.coffee >= 55 && this.inReach(a, LEVEL.customer.delivery, .85)) result.push({ type: 'deliver', label: 'Serve coffee', targetId: 'customer' });
+      if (cup.coffee >= 85 && this.inReach(a, LEVEL.customer.delivery, .85)) result.push({ type: 'deliver', label: 'Serve coffee', targetId: 'customer' });
       for (const station of this.stations) if (!station.cupId && this.inReach(a, station)) result.push({ type: 'brew', label: cup.coffee ? 'Refill coffee' : 'Start brewing', targetId: station.id });
       for (const surface of this.surfaces) if (!surface.cupId && this.inReach(a, surface)) result.push({ type: 'place', label: 'Place mug on worktop', targetId: surface.id });
       result.push({ type: 'drop', label: 'Drop mug', targetId: cup.id });
@@ -403,7 +403,7 @@ export class CoffeeSimulation {
     else if (interaction.type === 'brew') return this.placeCup(a, this.stations.find(s => s.id === interaction.id));
     else if (interaction.type === 'deliver') {
       const cup = this.cupFor(a);
-      if (cup && !cup.broken && cup.coffee >= 55 && distance(a, LEVEL.customer.delivery) < .85) {
+      if (cup && !cup.broken && cup.coffee >= 85 && distance(a, LEVEL.customer.delivery) < .85) {
         cup.holderId = null; cup.delivered = true; this.cupCollider(cup);
         cup.body.setTranslation({ x: LEVEL.customer.desk.x, y: LEVEL.customer.desk.h + .17, z: -.65 }, true);
         cup.body.setNextKinematicTranslation({ x: LEVEL.customer.desk.x, y: LEVEL.customer.desk.h + .17, z: -.65 });
@@ -530,7 +530,7 @@ export class CoffeeSimulation {
       const c = this.cupFor(a); if (!a.delivered) a.coffee = c?.coffee || 0; a.carrying = !!c;
       if (!a.delivered) {
         const station = this.stations.find(s => s.ownerId === a.id && s.cupId);
-        a.progress = c?.coffee >= 55 ? .63 + clamp(1 - distance(a, LEVEL.customer.delivery) / 18, 0, 1) * .35 : station ? .34 + station.progress * .25 : c ? .2 + clamp(1 - Math.min(...this.stations.map(s => distance(a, s))) / 12, 0, 1) * .12 : .06;
+        a.progress = c?.coffee >= 85 ? .63 + clamp(1 - distance(a, LEVEL.customer.delivery) / 18, 0, 1) * .35 : station ? .34 + station.progress * .25 : c ? .2 + clamp(1 - Math.min(...this.stations.map(s => distance(a, s))) / 12, 0, 1) * .12 : .06;
       }
     }
     this.spills = this.spills.filter(s => (s.ttl -= dt) > 0).slice(-32);

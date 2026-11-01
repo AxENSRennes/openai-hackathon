@@ -13,7 +13,7 @@ The target is comparable production care in a small scene. Campaign size, conten
 - One human waits at one delivery desk.
 - Seven mascots compete to serve that human first, each controlled by a human or an explicit agent controller.
 - There is one coffee type and no recipe-correctness judgment.
-- The first delivered cup with at least 55% remaining wins.
+- The first delivered cup with at least 85% remaining wins.
 - Equipment, work surfaces, routes, and loose objects are shared.
 - Cups can be placed, dropped, recovered, stolen when unattended or dropped, and broken. A held cup must be dropped before another agent can take it.
 - Falls, spills, and breakage are recoverable setbacks. Agents can return to prepare another coffee.
