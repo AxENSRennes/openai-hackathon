@@ -1,79 +1,107 @@
 # Coffee Run
 
-Seven agent-controlled mascots compete to deliver one coffee to one waiting customer with at least **55% remaining**. Agents explicitly choose every movement and interaction. The kitchen, equipment, routes, furniture, and persistent mugs are shared. Spectators join on their phones and bet virtual coins.
+Seven mascots. One customer. Deliver the coffee before someone ruins it.
 
-The rebuild targets the commercial indie vertical slice defined in [QUALITY_BAR.md](QUALITY_BAR.md). Feature presence alone does not establish that quality. Current implementation and remaining gaps are recorded in [PROGRESS.md](PROGRESS.md).
+**Team: Coffee Run** · Built for the DevDay Exchange Community Hackathon in London, 1 November 2026.
 
-## Development on the VPS
+[Open the live game](https://coffee.colvenalabs.com/) · [Join on your phone](https://coffee.colvenalabs.com/join)
 
-Requires Node.js 22.12 or later. The published service owns port 5173. Run development separately:
+Coffee Run is a browser-based 3D party game for people watching together. Seven agent-controlled mascots share an office kitchen and compete to deliver a coffee to one waiting customer with **at least 55% remaining**. They must collect a cup, brew it, and get it across the room while navigating furniture, other runners, spills, and a moving gate. Spectators pick a favorite and bet imaginary coins from their phones.
+
+The idea is to turn agent decisions into something an audience can watch, influence, and play: a small physical task with a visible outcome, shared resources, and plenty of opportunities to get it wrong.
+
+## Try it
+
+1. Open [coffee.colvenalabs.com](https://coffee.colvenalabs.com/) on a desktop browser and let the office load.
+2. Select a mascot along the bottom. Choose **Control** to play it yourself, or open **Agent instructions** to give a model a written or recorded instruction when server-side API credentials are configured.
+3. Choose **Start run**, or wait for the betting countdown. Collect a cup from the kitchen rack, start brewing at a coffee machine, take the finished cup, and serve the customer. The first delivery with at least 55% coffee wins.
+4. On a second device, scan **Join & bet** or open [the phone betting slip](https://coffee.colvenalabs.com/join). You start with **1,000 virtual coins**. Choose a mascot and confirm a wager before betting closes.
+5. Watch the delivery result and payout. The next round starts automatically.
+
+No account or player API key is needed for manual play or phone betting. Runners wait for a human or agent controller; starting a round alone does not make them race. A new round releases controller assignments, so select a controller again when needed. Microphone instructions require HTTPS or localhost and microphone permission.
+
+| Keyboard | Action |
+| --- | --- |
+| WASD or arrow keys | Move the controlled mascot |
+| Shift | Move carefully to protect the coffee |
+| E | Perform the nearby interaction shown on screen: pick up, brew, recover, or serve |
+| Q | Drop the cup |
+| Space | Shove |
+
+Touch controls appear while controlling a mascot. Camera controls let spectators follow a selected runner or view the whole office.
+
+## What we built
+
+- **A shared physical arena:** a Three.js office with Rapier collisions, two coffee machines, movable chairs, a timed gate, and persistent cups that can be dropped, recovered, spilled, or broken. Brewing continues while a cup is unattended; another runner can take it.
+- **Seven original playable mascots:** Astra, Opus, Grokbot, Argon, DeepSeek, Kimi, and Mistral, with distinct designs and running, carrying, shoving, falling, recovery, and victory animations.
+- **Direct agent control:** each runner can receive explicit commands from an external coding agent over HTTP or from the integrated Responses and Decisions controllers. Observations include the map, physical state, available interactions, and previous command results. The simulation enforces the rules; controllers choose their actions.
+- **Human instructions:** change an agent's goal with text or a short recorded voice instruction. The server transcribes the recording and sends the resulting text as the new instruction, cancelling commands from the previous instruction.
+- **A live audience experience:** synchronized desktop viewing, QR joining, a lightweight phone betting interface, replaceable wagers before the race, pool-based payouts, and refunds for draws or unbacked winners. All coins are imaginary.
+- **Delivery infrastructure:** a Node.js server, WebSocket updates, an HTTPS deployment, progressive scene loading, and compressed assets.
+
+The mascot names are character identities, not a claim that seven different providers' models are connected. Each mascot's controller is configured separately.
+
+## How Codex helped
+
+We used Codex throughout the build to implement and revise the React interface, Three.js scene and procedural characters, Rapier simulation, agent command API, phone betting, and automated checks.
+
+Two concrete examples:
+
+- **Making delivery verifiable:** Codex helped build an external controller and tests that explicitly collect a cup, start brewing, recover the cup, and deliver it through the same command interface an agent uses. The recorded HTTP-controller check completed a round with 100% coffee remaining. This verified the game loop with scripted commands; it was not a live model competition.
+- **Fixing slow scene loading:** Codex helped extract shared textures, precompress assets, add visible loading progress and retry feedback, and check the result in a throttled browser. The implementation and recorded checks are documented in [PROGRESS.md](PROGRESS.md).
+
+## Run locally
+
+Requires **Node.js 22.12 or later** and npm. A browser with WebGL support is needed for the 3D view.
 
 ```sh
 npm ci
-PORT=5174 PUBLIC_URL=http://YOUR_VPS_ADDRESS:5174 npm run dev
+npm run dev
 ```
 
-Open `http://localhost:5174`. Use **Join & bet** to display the phone QR code. Set `PUBLIC_URL` to the development origin reachable by spectators; `/api/info` reports the generated join URL. Do not point development phones at the production origin.
+Open **http://localhost:5173**. For phones on the same network, use the network address printed by the server. Set `PUBLIC_URL` in `.env` to the origin reachable by your audience so the QR code uses the right address. Venue Wi-Fi may isolate devices; a shared hotspot can help.
 
-Rounds cycle through betting, racing, and results. **Start run** closes betting and starts the race. The menu exposes overview, automatic framing, optional following, zoom, sound, fullscreen, and a round reset. `/join` loads the betting interface without the Three.js renderer.
-
-## Foundations
-
-- `shared/level.js` defines the single arena, static collider geometry, stations, circulation paths, and seven identities.
-- `shared/physics.js` initializes Rapier; `shared/simulation.js` executes bounded physical commands and owns persistent cup ownership, unattended brewing, collisions, and delivery. It never chooses a runner's destination or action.
-- `client/mascots.js` preserves the seven original Coffee Royale models and poses from PR #3; `shared/mascots.js` supplies their names and palettes. `client/mascot-view.js` adds running with coffee, reaching, falling, recovery, and persistent takeaway cups.
-- `client/scene.js` loads the authored glTF environment and chairs, interpolates network snapshots, and coordinates mascots, physical cups, local indicators, and effects. `client/camera.js` and `client/audio.js` handle framing and event sound.
-- `scripts/build-assets.py` authors the environment and chairs in Blender. Exported GLBs and the seven original mascot portraits are committed in `public/assets`.
-- `server/betting.js` maintains virtual wallets and pari-mutuel settlement. Socket.IO distributes authoritative snapshots and wager results.
-
-The legacy simulation, procedural renderer, separate delivery desks, and website layout have been replaced. The prototype exists only in Git history on `archive/coffee-run-prototype-20261101`; it is not a second runtime or an asset fallback.
-
-## Assets
+To run alongside an existing service on port 5173:
 
 ```sh
-/usr/bin/blender --background --python scripts/build-assets.py
-/usr/bin/blender --background --python scripts/build-assets.py -- --environment-only
+PORT=5174 npm run dev
 ```
 
-The mascot models are generated locally from their original Three.js source, without character downloads or Blender at runtime. Their original `idle`, `run`, `carry`, `punch`, `stunned`, `wobble`, and `victory` poses are retained. See [the asset contract](public/assets/README.md) for ownership and animation integration.
+### Optional model and voice control
 
-Blender's glTF exporter requires NumPy. On Debian installations without that Python module, install it in Blender's Python environment or the user's Python site packages. The script reads arena geometry from `shared/level.js` and exports meshes without scene cameras or lights.
+Copy `.env.example` to `.env` and set `OPENAI_API_KEY` on the server. Optional settings are `OPENAI_MODEL`, `OPENAI_DECISIONS_MODEL`, and `OPENAI_TRANSCRIPTION_MODEL`; the example file lists the current defaults. Credentials stay on the server and must not be committed.
 
-The production build extracts byte-identical embedded textures into shared files and precompresses the GLBs with Brotli and gzip. Original authored assets stay unchanged. Brotli reduces the initial 3D payload from 14.07 MB to 3.40 MB, including shared textures. The server negotiates the supported encoding, and content-addressed textures can be cached across visits. The loading screen shows progress and offers a reload when downloads fail or stop responding.
+Open **Agent instructions** to choose a controller and enter an instruction. Recorded voice instructions use short audio transcription, rather than a continuous voice conversation. Without a server API key, manual controls and external HTTP controllers remain available.
 
-## Agent controllers
+See [the agent control guide](docs/agent-control.md) for the HTTP contract, command examples, controller ownership, and reproducible scenarios.
 
-Runners wait until a human or agent supplies commands. There is no automatic navigation, avoidance, pickup, shoving, delivery, standing up, or fallback bot. Each runner can use an external coding agent over HTTP, a Responses API agent, or the Decisions API. Model controllers choose their own physical commands separately for each runner.
+### Production
 
-Open **Agent instructions** beside the camera controls to select Responses or Decisions, send or replace a written instruction, record a spoken instruction, or stop the agent. Voice records a short utterance, transcribes it server-side, and submits it as the agent's new instruction. It does not require a continuous Realtime session. Model and voice controls require `OPENAI_API_KEY`; without one, external agents and direct keyboard control still work. This change does not provision API credentials; model and voice integration tests use simulated responses.
+```sh
+npm ci
+npm run build
+npm start
+```
 
-For an external agent, use `scripts/agent-client.mjs` or the HTTP API. See [agent control and testing](docs/agent-control.md) for commands, context, ownership, versioning, and reproducible tests.
+The production server defaults to port 5173. Use an HTTPS reverse proxy with WebSocket support and set `PUBLIC_URL` to your public origin. See [deployment instructions](deploy/README.md).
 
-## Betting
-
-Guests receive 1,000 imaginary coins. A wager can be replaced before the race. Payouts divide the actual pool among winning stakes, using integer amounts. Draws, aborted rounds, and unbacked winners refund stakes. Wallets and rounds are in server memory; a restart resets them. Guest identity is remembered in browser local storage.
-
-## Trailer
-
-The 42-second Remotion edit, directed Rapier takes, supplied music, fonts,
-phone capture, and seven scratch narration clips live in `trailer/`.
-Run `npm run video:prepare`, `npm run video:stills`, `npm run video:render`,
-and `npm run video:mix`. See [the video pipeline](trailer/README.md) and
-[the Mac continuation prompt](trailer/CONTINUE_ON_MAC.md). The complete picture
-render still needs to finish; the scratch narration is replaceable without
-rendering the 3D picture again.
-
-## Validation and deployment
+## Validation and current limits
 
 ```sh
 npm test
 npm run build
 ```
 
-Tests cover actual Rapier collisions, command expiry, explicit actions, exclusive ownership, unattended preparation, breakage, legal delivery, draw handling, and fixed-step determinism. HTTP tests exercise external control and both model transports. Model responses and speech transcription are simulated: real model performance and live speech recognition remain unverified without an API key. Browser scenarios inspect instruction changes, controller selection, recording submission, error feedback, keyboard focus, and mobile layout.
+The suite covers physical commands, cup ownership, brewing and delivery, controller ownership and instruction changes, virtual-coin settlement, asset compression, and trailer replay. Recorded browser reviews cover manual delivery, phone wagers, loading recovery, and the agent instruction interface. Details are in [PROGRESS.md](PROGRESS.md).
 
-See [deployment operations](deploy/README.md). Push unfinished work only to `rebuild/level4-vps`; `main` triggers production deployment. The running release is `/srv/coffee-run/current`, managed by `coffee-run.service`. Preserve it and unrelated VPS applications.
+Model transport and speech tests use simulated API responses. Live model decision quality, API latency, and speech recognition are not established by those tests. Controller availability in the hosted game depends on its server configuration.
 
-## Credits
+This hackathon build has one shared room and trusted-audience host controls. Rounds and wallets are held in server memory and reset on restart. Cups are finite within each round. There are no persistent accounts or real-money transactions.
 
-Original models, environment, animations, simulation, and interface authored for this project with Codex and Blender. Runtime libraries include Rapier, Three.js, React, Vite, Express, Socket.IO, and QRCode. Fonts: Barlow Condensed and DM Sans. Overcooked! 2 is a quality reference; its artwork is not shipped in the game.
+## Credits and assets
+
+The game code, office environment, procedural character models, animations, simulation, and interface were authored for this project with Codex, Three.js, and Blender. The seven mascots were integrated from [our Coffee Royale character work in PR #3](https://github.com/AxENSRennes/openai-hackathon/pull/3); see [asset sources and reproduction](public/assets/README.md). They are original parody characters, not official brand mascots. Overcooked! 2 informed the visual direction; its assets are not included.
+
+Existing libraries and tools include React, Three.js, Rapier, Vite, Express, Socket.IO, QRCode, Blender, and Remotion. Fonts are Barlow Condensed and DM Sans from Google Fonts; bundled trailer fonts include their license notices.
+
+The optional [42-second trailer pipeline](trailer/README.md) uses directed gameplay takes, supplied music, and scratch synthetic narration. These takes show staged physical commands rather than live model decisions. Music provenance is recorded in [video assets](video/assets/README.md); narration sources and license restrictions are documented in the trailer guide.
