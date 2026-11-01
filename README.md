@@ -53,6 +53,16 @@ For an external agent, use `scripts/agent-client.mjs` or the HTTP API. See [agen
 
 Guests receive 1,000 imaginary coins. A wager can be replaced before the race. Payouts divide the actual pool among winning stakes, using integer amounts. Draws, aborted rounds, and unbacked winners refund stakes. Wallets and rounds are in server memory; a restart resets them. Guest identity is remembered in browser local storage.
 
+## Trailer
+
+The 42-second Remotion edit, directed Rapier takes, supplied music, fonts,
+phone capture, and seven scratch narration clips live in `trailer/`.
+Run `npm run video:prepare`, `npm run video:stills`, `npm run video:render`,
+and `npm run video:mix`. See [the video pipeline](trailer/README.md) and
+[the Mac continuation prompt](trailer/CONTINUE_ON_MAC.md). The complete picture
+render still needs to finish; the scratch narration is replaceable without
+rendering the 3D picture again.
+
 ## Validation and deployment
 
 ```sh

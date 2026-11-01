@@ -1,0 +1,16 @@
+{
+  "jobId": "coffee-run-trailer-v1",
+  "language": "en-GB",
+  "fps": 30,
+  "durationSeconds": 42,
+  "direction": "Use the approved original British narrator and the same reference voice for every segment. Warm clear mid-low voice. A very serious technology product launch, with dry understatement. Natural, confident pacing. Do not oversell the jokes, laugh, add words, or speak the segment IDs. Keep full word endings. Each segment must fit its maxDurationSeconds; aim slightly shorter to leave a pause. Do not add music. Upload individual WAVs and manifest.json to the agreed VPS voice-jobs directory.",
+  "segments": [
+    { "id": "intro", "startSeconds": 0.35, "maxDurationSeconds": 5.2, "text": "Your agents write your code. Fix your bugs. Ship your app.", "direction": "Three assured statements. Brief natural pauses. Build quiet confidence." },
+    { "id": "question", "startSeconds": 6.2, "maxDurationSeconds": 3.4, "text": "But can they bring you a coffee?", "direction": "A genuine, understated question. Let coffee land. No exaggerated comic voice." },
+    { "id": "bodies", "startSeconds": 10.3, "maxDurationSeconds": 4.3, "text": "So we gave them bodies. And one simple task.", "direction": "Treat this like a historic product announcement. Small pause between sentences." },
+    { "id": "stakes", "startSeconds": 15.25, "maxDurationSeconds": 5.3, "text": "Seven agents. One coffee. What could possibly go wrong?", "direction": "Calm confidence. Slightly inquisitive ending. Do not telegraph the coming crash." },
+    { "id": "overengineered", "startSeconds": 27.25, "maxDurationSeconds": 3.5, "text": "We may have over-engineered this.", "direction": "A quiet, matter-of-fact admission after a catastrophe. Restrained and dry." },
+    { "id": "instructions", "startSeconds": 32.15, "maxDurationSeconds": 4.8, "text": "Give yours instructions. Back your favourite.", "direction": "Warm invitation. Two short, clear phrases." },
+    { "id": "tagline", "startSeconds": 37.8, "maxDurationSeconds": 4.0, "text": "Coffee Run. Artificial intelligence. Questionable coordination.", "direction": "Clean brand sign-off. Pause after Coffee Run. Keep Questionable coordination completely serious." }
+  ]
+}

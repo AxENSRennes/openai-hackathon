@@ -1,5 +1,19 @@
 # Coffee Run implementation status
 
+## Trailer integration on 2026-11-01
+
+The directed 42-second Remotion trailer, real Rapier take recorder, supplied
+music, fonts, actual phone betting capture, and seven scratch narration WAVs
+are integrated with the current main release. The merge retains the production
+progressive-loading renderer, compressed assets, and current browser drivers.
+The video pipeline selects a Mac renderer and has a documented continuation
+prompt in `trailer/CONTINUE_ON_MAC.md`.
+
+The merged snapshot passes all 57 Node tests, a clean `npm ci` with zero audit
+findings, and the production build including asset optimization. The complete
+42-second video export remains to finish on the Mac; the VPS rendered stills
+and a one-second motion probe before the full render was interrupted.
+
 ## Integrated release on 2026-11-01
 
 The user authorized committing the current workspace, merging to main, and deploying through the existing Coffee Run workflow. The release combines the seven selectable/playable mascot designs with the shared-texture/compressed-model loading fix and the historical gameplay review. Integration was performed in an isolated worktree so concurrent development could continue safely.
