@@ -28,20 +28,21 @@ export class CoffeeScene {
     const gl = this.renderer.getContext(), debug = gl.getExtension('WEBGL_debug_renderer_info');
     const device = debug ? gl.getParameter(debug.UNMASKED_RENDERER_WEBGL) : '';
     this.softwareRenderer = /swiftshader|llvmpipe|softpipe/i.test(device);
-    if (this.softwareRenderer) {
+    this.lowPowerRendering = this.softwareRenderer && new URLSearchParams(window.location.search).get('quality') !== 'full';
+    if (this.lowPowerRendering) {
       this.renderer.dispose(); this.renderer.forceContextLoss();
       this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'low-power' });
     }
-    this.renderer.setPixelRatio(this.softwareRenderer ? .5 : Math.min(window.devicePixelRatio || 1, 1.6));
+    this.renderer.setPixelRatio(this.lowPowerRendering ? .5 : Math.min(window.devicePixelRatio || 1, 1.6));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.NeutralToneMapping; this.renderer.toneMappingExposure = 1.03;
-    this.renderer.shadowMap.enabled = !this.softwareRenderer; this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.enabled = !this.lowPowerRendering; this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.domElement.setAttribute('aria-label', 'Six employees compete to deliver a coffee through the shared office');
     this.renderer.domElement.setAttribute('role', 'img');
     container.appendChild(this.renderer.domElement);
     this.scene.add(new THREE.HemisphereLight('#fff3d9', '#69816c', 1.6));
     const sunlight = new THREE.DirectionalLight('#fff0d3', 2.7); sunlight.position.set(-8, 22, 9);
-    sunlight.castShadow = true; sunlight.shadow.mapSize.set(this.softwareRenderer ? 512 : 2048, this.softwareRenderer ? 512 : 2048);
+    sunlight.castShadow = true; sunlight.shadow.mapSize.set(2048, 2048);
     Object.assign(sunlight.shadow.camera, { left: -16, right: 16, top: 14, bottom: -14, near: .5, far: 55 });
     sunlight.shadow.normalBias = .025; sunlight.shadow.bias = -.00015; sunlight.shadow.radius = 3;
     this.scene.add(sunlight);
@@ -70,7 +71,7 @@ export class CoffeeScene {
           this.textures.add(material[key]);
         }
       }
-      if (this.softwareRenderer) {
+      if (this.lowPowerRendering) {
         const convert = material => {
           if (!softwareMaterials.has(material)) {
             const replacement = new THREE.MeshLambertMaterial({ color: material.color, map: material.map, emissive: material.emissive, emissiveMap: material.emissiveMap, transparent: material.transparent, opacity: material.opacity, side: material.side });
@@ -120,11 +121,11 @@ export class CoffeeScene {
     }
     this.createGate(); this.createIndicators();
     if (this.state) this.syncState(this.state);
-    this.container.dispatchEvent(new CustomEvent('scene-ready', { detail: { softwareRenderer: this.softwareRenderer } }));
+    this.container.dispatchEvent(new CustomEvent('scene-ready', { detail: { softwareRenderer: this.softwareRenderer, lowPowerRendering: this.lowPowerRendering } }));
   }
   material(color, options = {}) {
-    const Material = this.softwareRenderer ? THREE.MeshLambertMaterial : THREE.MeshStandardMaterial;
-    const parameters = { color, ...options }; if (this.softwareRenderer) delete parameters.roughness; else parameters.roughness ??= .72;
+    const Material = this.lowPowerRendering ? THREE.MeshLambertMaterial : THREE.MeshStandardMaterial;
+    const parameters = { color, ...options }; if (this.lowPowerRendering) delete parameters.roughness; else parameters.roughness ??= .72;
     const material = new Material(parameters); this.materials.add(material); return material;
   }
   effectMaterial(color) {
@@ -230,7 +231,8 @@ export class CoffeeScene {
       this.audio.event(event, position.x);
       const direction = event.dx || event.dz ? Math.atan2(event.dx, event.dz) : agent?.heading || 0;
       if (['drop', 'spill', 'push', 'break'].includes(event.type)) this.burst(position, event.type === 'break' ? '#fff0d1' : '#794b2b', event.type === 'break' ? 14 : 8, direction);
-      if (LABELS[event.type]) this.popup(position, LABELS[event.type], event.type === 'steal' ? '#d9e878' : '#fff0cb');
+      const label = event.type === 'recover' ? (agent?.carrying ? 'CUP RECOVERED' : 'BACK UP') : LABELS[event.type];
+      if (label) this.popup(position, label, event.type === 'steal' ? '#d9e878' : '#fff0cb');
       if (event.type === 'win') this.confetti();
     }
   }
@@ -316,13 +318,14 @@ export class CoffeeScene {
   }
   animate() {
     if (this.disposed) return;
-    const now = performance.now(), dt = Math.min((now - this.lastTime) / 1000, .05); this.lastTime = now; this.time += dt;
+    const now = performance.now(), dt = Math.min((now - this.lastTime) / 1000, .25); this.lastTime = now; this.time += dt;
     for (const [id, view] of this.characters) {
       const agent = this.interpolated('agents', id, now) || view.agent;
       if (!agent) { view.mixer.update(dt); continue; }
       const distance = Math.hypot(view.root.position.x - agent.x, view.root.position.z - agent.z);
       view.root.position.set(agent.x, agent.y || 0, agent.z); view.root.rotation.y = angleLerp(view.root.rotation.y, agent.heading || 0, 1 - Math.exp(-dt * 16));
       let action = this.state?.phase === 'betting' ? 'Idle' : agent.delivered ? 'Interact' : ACTIONS[agent.action] || 'Idle';
+      if (this.state?.phase === 'results' && !agent.delivered) action = agent.fallen ? 'Fall' : agent.carrying ? 'CarryIdle' : 'Idle';
       if (action === 'Carry' && !agent.moving && view.actions.has('CarryIdle')) action = 'CarryIdle';
       this.playAction(view, action);
       const active = view.actions.get(action);

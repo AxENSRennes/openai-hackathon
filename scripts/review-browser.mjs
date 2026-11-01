@@ -75,10 +75,10 @@ try {
   const frames = await page.evaluate(() => window.reviewFrames);
   const recent = frames.filter(value => value > 0).slice(-300).sort((a, b) => a - b);
   const report = { target, actualBrowser: await browser.version(), viewport: { width: 1280, height: 720 }, round: result.round, elapsed: result.elapsed, winner: result.winner, deliveredCoffee: winner.coffee,
-    incidents: [...events.values()].filter(event => ['steal','drop','push','spill','fall','recover','break','gate'].includes(event.type)), errors, failedRequests,
+    incidents: [...events.values()].filter(event => event.id.startsWith(`${result.round}-`) && ['steal','drop','push','spill','fall','recover','break','gate'].includes(event.type)), errors, failedRequests,
     renderer: await page.evaluate(() => window.reviewSceneReady), frameMilliseconds: { median: recent[Math.floor(recent.length / 2)], p95: recent[Math.floor(recent.length * .95)], note: 'Measured in software-rendered headless Chromium on this VPS; this is not a hardware GPU performance certification.' } };
   await writeFile(output + 'report.json', JSON.stringify(report, null, 2));
-  await writeFile(output + 'snapshots.json', JSON.stringify(snapshots));
+  await writeFile(output + 'snapshots.json', JSON.stringify(snapshots.filter(snapshot => snapshot.round === result.round)));
   assert.equal(errors.length, 0, errors.join('\n'));
 } finally {
   socket.disconnect(); await context.close(); await browser.close();

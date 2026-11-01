@@ -44,7 +44,11 @@ async function navigate(goal) {
 }
 async function interact(type) {
   assert.equal(agent().contextualAction?.type, type, `Expected ${type}, agent=${JSON.stringify(agent())}`);
-  await page.keyboard.press('e'); await pause(850);
+  const priorCup = agent().cupId;
+  const targetId = agent().contextualAction.targetId;
+  await page.keyboard.press('e');
+  await until(() => type === 'take' ? !!agent().cupId : type === 'brew' ? state.stations.some(station => station.id === targetId && station.cupId === priorCup) : type === 'deliver' ? state.winner === 'pip' : !agent().interaction, 5000);
+  await pause(120);
 }
 async function checkpoint(name) { checkpoints.push({ name, elapsed: state.elapsed, agent: agent(), cups: state.cups, stations: state.stations }); console.log(name, state.elapsed.toFixed(2), agent().x.toFixed(2), agent().z.toFixed(2)); await page.screenshot({ path: output + name + '.png', timeout: 60000 }); }
 try {
